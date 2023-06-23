@@ -476,7 +476,22 @@ cleangrowth <- function(subjid,
 
       # NOTE: SD SCORES IN CODE ARE Z IN INFANT DOCS -- USE sd.orig ONLY
 
-      # correcting z scores
+      # NOTE: MAY WANT TO SUBSET HERE
+
+      # 2b: corrected z scores ----
+
+      # keep the original column names -- we're adding a ton of columns that we
+      # want to filter out after correction
+      orig_colnames <- colnames(data.all)
+
+      # start by reading in fenton data
+      fent_foraga <- fread(
+        system.file(file.path("extdata", "fent_foraga.csv.gz"),
+                    package = "growthcleanr"))
+      fent_forz <- fread(
+        system.file(file.path("extdata", "fent_forz.csv.gz"),
+                    package = "growthcleanr"))
+
       # add age in months
       data.all[, agemonths := agedays/30.4375]
 
@@ -490,10 +505,127 @@ cleangrowth <- function(subjid,
       # replace to facilitate merging with fenton curves
       data.all[intwt >= 250 & intwt <=560, intwt := 570]
 
-      # MERGE WITH FENTON CURVES =- STOP HERE
+      # merge with fenton curves
+      data.all <- merge(
+        data.all, fent_foraga, by = c("sex", "intwt"),
+        all.x = T)
 
-      # remove added columns
-      data.all[, c("intwt") := NULL]
+      data.all[fengadays < 259, pmagedays := agedays + fengadays]
+      data.all[fengadays < 259, cagedays := pmagedays - 280]
+      # replace fengadays with pmagedays to facilitate merging
+      data.all[, fengadays := pmagedays]
+
+      # merge with fenton curves
+      data.all <- merge(
+        data.all, fent_forz, by = c("sex", "fengadays"),
+        all.x = T)
+
+      # add unmodified zscore using weight in unrounded grams
+      data.all[, unmod_zscore :=
+                 ((v*1000/fen_wt_m)^fen_wt_l - 1)/(fen_wt_l * fen_wt_s)]
+
+      # read in who/cdc data
+      growthfile_who <- fread(
+        system.file(file.path("extdata", "growthfile_who.csv.gz"),
+                    package = "growthcleanr"))
+      growthfile_cdc <- fread(
+        system.file(file.path("extdata", "growthfile_cdc_ext_infants.csv.gz"),
+                    package = "growthcleanr"))
+
+      # merge in the who/cdc data
+      data.all <- merge(data.all, growthfile_who,
+                        by.x = c("sex", "cagedays"),
+                        by.y = c("sex", "agedays"),
+                        all.x = T)
+      data.all <- merge(data.all, growthfile_cdc,
+                        by.x = c("sex", "cagedays"),
+                        by.y = c("sex", "agedays"),
+                        all.x = T)
+
+      # adjust WHO and CDC heights based on age
+      data.all[, cwho_cv := v]
+      data.all[, ccdc_cv := v]
+      data.all[param == "HEIGHTCM" & agedays > 730 & cagedays <= 730,
+               cwho_cv := cwho_cv + 0.8]
+      data.all[param == "HEIGHTCM" & agedays > 730 & cagedays <= 730,
+               ccdc_cv := ccdc_cv + 0.7]
+
+      # create the corrected z scores -- STOP HERE
+      # use read anthro, but pass in different arguments
+      # pass in the corrected height
+      data.all[, sd.c_cdc :=
+                 measurement.to.z(param, cagedays, sex, ccdc_cv, TRUE)]
+      data.all[, sd.c_who :=
+                 measurement.to.z_who(param, cagedays, sex, cwho_cv, TRUE)]
+
+      # smooth using weights as in original z score creation
+      who_weight <- 4 - (data.all$agedays/365.25)
+      cdc_weight <- (data.all$agedays/365.25) - 2
+
+      smooth_val <- data.all$agedays/365.25 >= 2 &
+        data.all$agedays/365.25 <= 4 &
+        data.all$param != "HEADCM"
+      data.all[smooth_val,
+               sd.c := (sd.c_cdc[smooth_val]*cdc_weight[smooth_val] +
+                             sd.c_who[smooth_val]*who_weight[smooth_val])/2]
+
+      # otherwise use WHO and CDC for older and younger, respectively
+      who_val <- data.all$param == "HEADCM" |
+        data.all$agedays/365.25 < 2
+      data.all[who_val | (smooth_val & is.na(data.all$sd.c_cdc)),
+               sd.c := data.all$sd.c_who[who_val  | (smooth_val & is.na(data.all$sd.c_cdc))]]
+
+      cdc_val <- data.all$param != "HEADCM" |
+        data.all$agedays/365.25 > 4
+      data.all[cdc_val | (smooth_val & is.na(data.all$sd.c_who)),
+               sd.c := data.all$sd.c_cdc[cdc_val | (smooth_val & is.na(data.all$sd.c_who))]]
+
+      # smoth corrected and uncorrected z scores
+      uncorrweight <-  4 - (data.all$agedays/365.25)
+      corrweight <- (data.all$agedays/365.25) - 2
+      smooth_val <- data.all$agedays/365.25 >= 2 &
+        data.all$agedays/365.25 <= 4 &
+        data.all$param != "HEADCM"
+      data.all[smooth_val,
+               sd.corr := (sd.c[smooth_val]*corrweight[smooth_val] +
+                             sd.orig[smooth_val]*uncorrweight[smooth_val])/2]
+      # for < 2 & potential correction, use fenton corrected score
+      data.all[agedays/365.25 <= 2 & potcorr, sd.corr := sd.c]
+      # for > 4, use original z score
+      data.all[agedays/365.25 >= 4, sd.corr := sd.orig]
+      # for not potential corrections, use the original z score
+      data.all[!potcorr, sd.corr := sd.orig]
+      # if the who/fenton score is not available for any reason, use the
+      # original
+      data.all[is.na(sd.corr), sd.corr := sd.orig]
+
+      # check for consistent growth
+      examine_only <- data.all$param == "WEIGHTKG" &
+        data.all$subjid %in% data.all$subjid[potcorr]
+      tmp <- copy(data.all[examine_only,])
+      tmp <- tmp[order(subjid, agedays),]
+      tmp[, seq_win := sequence(.N), by = subjid]
+      # we're only looking at the first 4 values, and they need to be < 2 years
+      tmp <- tmp[seq_win <= 4 & (agedays/365.25) < 2,]
+      # don't look at subjects where there is only 1 score and there is no
+      # value for either
+      tmp <- tmp[!(is.na(sd.corr & sd.orig)),]
+      tmp <- tmp[subjid %in% names(table(subjid) > 1),]
+      # create differences, absolute sum them
+      tmp[, sd.corr_abssumdiff := abs(sum(sd.corr[1] - sd.corr)), by = subjid]
+      tmp[, sd.orig_abssumdiff := abs(sum(sd.orig[1] - sd.orig)), by = subjid]
+      # find subjects where corrected value needs to be replaced
+      sub_replace <- unique(tmp[sd.corr_abssumdiff > sd.orig_abssumdiff,
+                                subjid])
+
+      # replace accordingly in the main dataframe
+      data.all[subjid %in% sub_replace, sd.corr := sd.orig]
+
+      # now merge in corrected sd values
+      data.all[, sd.orig := sd.corr]
+
+      # remove many added columns
+      data.all <- data.all[, ..orig_colnames]
     } else {
       # calculate z scores
       if (!quietly)
@@ -662,6 +794,10 @@ cleangrowth <- function(subjid,
 
     # safety check: treat observations where tbc.sd cannot be calculated as missing
     data.all[is.na(tbc.sd), exclude := 'Missing']
+
+    # 4: identify subset that don't need to be cleaned ----
+
+    # STOP HERE
 
     # pediatric: cleanbatch (most of steps) ----
 
