@@ -828,11 +828,12 @@ cleangrowth <- function(subjid,
     # parameter
     data.all[, nnte := no_sde & no_dup_val & no_outliers & no_bigdiff & nottoofar]
     # NOTE: to come back -- how not to calculate with parameter
+    data.all[, nnte_full := sum(nnte) == .N, by = c("subjid", "param")]
     data.all[, nnte := sum(nnte) == .N, by = c("subjid")]
 
 
     # remove many added columns -- except for nnte
-    orig_colnames <- c(orig_colnames, "nnte")
+    orig_colnames <- c(orig_colnames, "nnte", "nnte_full")
     data.all <- data.all[, ..orig_colnames]
 
     # pediatric: cleanbatch (most of steps) ----
