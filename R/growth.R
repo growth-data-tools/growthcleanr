@@ -797,7 +797,42 @@ cleangrowth <- function(subjid,
 
     # 4: identify subset that don't need to be cleaned ----
 
-    # STOP HERE
+    # identify those meeting all subjects meeting these criteria as "no need
+    # to ewma"
+    # does the subject have sdes
+
+    # keep the original column names -- we're adding a ton of columns that we
+    # want to filter out after correction
+    orig_colnames <- colnames(data.all)
+    # no SDEs
+    data.all[, sum_sde := .N, by = c("subjid", "param", "agedays")]
+    data.all[, no_sde := sum_sde == 1]
+    # does the subject have identical values
+    data.all[, sum_val := .N, by = c("subjid", "param", "v")]
+    data.all[, no_dup_val := sum_val == 1]
+    # all tbc.sd are within [-3,3] -- 0 is false
+    data.all[, no_outliers := sum((tbc.sd > -3 & tbc.sd < 3) |
+                               is.na(tbc.sd)) == (.N),
+        by = c("subjid", "param")]
+    data.all[, no_outliers := no_outliers == 1]
+    # all max - min tbd.sc < 2.5
+    data.all[, no_bigdiff := abs(max(tbc.sd) - min(tbc.sd)) < 2.5 | is.na(tbc.sd),
+        by = c("subjid", "param")]
+    # the previous value can't be too far from the current value
+    data.all[, seq_win := sequence(.N), by = c("subjid", "param")]
+    data.all[, nottoofar := abs(tbc.sd - dplyr::lag(tbc.sd)) < 1 | seq_win == 1,
+        by = c("subjid", "param")]
+    data.all[is.na(nottoofar),  nottoofar :=  TRUE]
+
+    # cumulative: no need to ewma -- needs to work for all within a subject &
+    # parameter
+    data.all[, nnte := no_sde & no_dup_val & no_outliers & no_bigdiff & nottoofar]
+    data.all[, nnte := sum(nnte) == .N, by = c("subjid", "param")]
+
+
+    # remove many added columns -- except for nnte
+    orig_colnames <- c(orig_colnames, "nnte")
+    data.all <- data.all[, ..orig_colnames]
 
     # pediatric: cleanbatch (most of steps) ----
 
