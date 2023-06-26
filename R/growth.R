@@ -827,7 +827,8 @@ cleangrowth <- function(subjid,
     # cumulative: no need to ewma -- needs to work for all within a subject &
     # parameter
     data.all[, nnte := no_sde & no_dup_val & no_outliers & no_bigdiff & nottoofar]
-    data.all[, nnte := sum(nnte) == .N, by = c("subjid", "param")]
+    # NOTE: to come back -- how not to calculate with parameter
+    data.all[, nnte := sum(nnte) == .N, by = c("subjid")]
 
 
     # remove many added columns -- except for nnte
