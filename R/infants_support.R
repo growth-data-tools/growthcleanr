@@ -28,7 +28,9 @@ temporary_extraneous_infants <- function(df) {
   if (is.null(df$param))
     df[, param := NA]
   # only operate on valid rows (but include rows that may have previously been flagged as a "temporary extraneous")
-  valid.rows <- valid(df, include.temporary.extraneous = TRUE)
+  # also do not calculate temporary extraneous for NNTEs
+  valid.rows <- valid(df, include.temporary.extraneous = TRUE) &
+    !df$nnte
   # make a small copy of df with only the fields we need for efficiency
   df <- df[j = .(tbc.sd), keyby = .(subjid, param, agedays, index)]
   # initialize some useful fields
