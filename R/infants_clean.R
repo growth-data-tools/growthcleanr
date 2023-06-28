@@ -80,7 +80,7 @@ cleanbatch_infants <- function(data.df,
 
   # NOTE: in each step, we redo temp SDEs
 
-  # initial temp SDEs ----
+  # 5: temporary SDEs ----
 
   # save a copy of all original measurement values before any transformation
   data.df[, v.orig := v]
@@ -95,54 +95,116 @@ cleanbatch_infants <- function(data.df,
   # capture a list of subjects with possible extraneous for efficiency later
   subj.dup <- data.df[exclude == 'Exclude-Temporary-Extraneous-Same-Day', unique(subjid)]
 
-  # carried forwards ----
+  # 6:  carried forwards ----
 
-  # 9.  Exclude values that are carried forward. For the purposes of this analysis, any value that is identical to the preceding value for the same parameter
-  #     and subject is considered carried forward. The chances of having identical measurements, even at an age/interval when little or no growth would be expected,
-  #     is fairly small, and when this is the case the carried forward measurements provide little new information.
-  # a.	Calculate d_prev_wt=wt-wtprev and d_prev_ht=ht-htprev. Use original measurements rather than transformed
-  #     measurements (unit errors and switches).
-  # b.	Unlike most steps, do this step for all extraneous values (exc_*==2) in addition to included values (exc_*==0), comparing all values for one day to all
-  #     values from the prior day – if there are any values with a d_prev*==0, the value on the latter day should be excluded.
-  # c.	Replace exc_*=3 for all values with d_prev*==0 & (exc_*==0 OR exc_*==2)
   if (!include.carryforward) {
     if (!quietly)
       cat(sprintf(
         "[%s] Exclude measurements carried forward...\n",
         Sys.time()
       ))
-    # for efficiency, bring get.prev and get.next inline here (working on valid rows within a single parameter for a single subject)
-    # structure c(NA, field.name[-.N]) == get.prev
-    data.df[, prev.v := as.double(NaN)]
-    data.df[valid(data.df), prev.v := c(NA, v.orig[-.N]), by = .(subjid, param)]
 
-    # optimize "carry forward" for children without extraneous.
-    data.df[!(subjid %in% subj.dup) &
-              v.orig == prev.v, exclude := 'Exclude-Carried-Forward']
+    # save original column names
+    orig_colnames <- colnames(data.df)
 
-    # need to handle children with extraneous measurements on same day separately
-    data.df[subjid %in% subj.dup &
-              valid(data.df, include.temporary.extraneous = TRUE), exclude := (function(df) {
-                setkey(df, agedays)
-                ages = unique(agedays)
-                # no point in looking for measurements carried forward if all measurements are from a single day of life
-                if (length(ages) > 1) {
-                  # iterate over each age
-                  for (i in 2:length(ages)) {
-                    # find the set of measurements from the previous age in days
-                    all.prev.v = df[agedays == ages[i - 1], v.orig]
-                    # if a measurement for the current age is found in the set of measurements from the previous age, then mark it as carried forward
-                    df[agedays == ages[i] &
-                         v.orig %in% all.prev.v, exclude := 'Exclude-Carried-Forward']
-                  }
-                }
-                return(df$exclude)
-              })(copy(.SD)), .SDcols = c('agedays', 'exclude', 'v.orig'), by = .(subjid, param)]
-  }
+    # we only running carried forwards on valid values, non NNTE values,
+    # and non single values
+    tmp <- table(paste0(data.df$subjid, "_", data.df$param))
+    single <- paste0(data.df$subjid, "_", data.df$param) %in% names(tmp)[tmp > 1]
+    valid_set <- valid(data.df, include.temporary.extraneous = TRUE) &
+      !data.df$nnte_full &
+      single
+    data.sub <- data.df[valid_set,]
 
-  # 9d.  Replace exc_*=0 if exc_*==2 & redo step 5 (temporary extraneous)
-  data.df[exclude == 'Exclude-Temporary-Extraneous-Same-Day', exclude := 'Include']
-  data.df[temporary_extraneous_infants(data.df), exclude := 'Exclude-Temporary-Extraneous-Same-Day']
+    # for ease, order by subject, parameter, and agedays
+    data.sub <- data.sub[order(subjid, param, agedays)]
+
+    # if no sdes, exclude carried forward values
+    data.sub[, sum_sde := .N, by = c("subjid", "param", "agedays")]
+    data.sub[, no_sde := !paste0(data.sub$subjid, "_", data.sub$param) %in%
+               paste0(data.sub$subjid, "_", data.sub$param)[data.sub$sum_sde > 1]]
+    data.sub[no_sde == TRUE, cf :=  (v.orig - shift(v.orig)) == 0, by = c("subjid", "param")]
+    data.sub[is.na(cf), cf := FALSE]
+
+    # for values with sdes, compare to all values from the prior day
+    data.sub[no_sde == FALSE, cf := (function(df){
+      ages <- unique(agedays)
+      for (i in 2:length(ages)) {
+        # find the set of measurements from the previous age in days
+        all.prev.v <- df[agedays == ages[i - 1], v.orig]
+        # if a measurement for the current age is found in the set of measurements from the previous age, then mark it as carried forward
+        df[agedays == ages[i] &
+             v.orig %in% all.prev.v, cf := TRUE]
+      }
+    })(copy(.SD)), .SDcols = c('agedays', 'cf', 'v.orig'), by = .(subjid, param)]
+
+    # merge in the carried forwards
+    cf_idx <- data.sub$index[data.sub$cf]
+    data.df[index %in% cf_idx, exclude := "Exclude-Carried-Forward"]
+
+    # redo temp sde
+    data.df$exclude[temporary_extraneous_infants(data.df)] <- 'Exclude-Temporary-Extraneous-Same-Day'
+
+    # find out if values are whole or half imperial
+    data.df[param == "WEIGHTKG",
+            wholehalfimp := (v.orig * 2.20462262)%%1 < 0.01]
+    data.df[param == "HEIGHTCM",
+            wholehalfimp := (v.orig * 1.27)%%1 < 0.01]
+    data.df[param == "HEIGHTCM",
+            wholehalfimp := (v.orig * 1.27 / 2)%%1 < 0.01]
+    data.df[param == "HEADCM",
+            wholehalfimp := (v.orig * 1.27)%%1 < 0.01]
+    data.df[param == "HEADCM",
+            wholehalfimp := (v.orig * 1.27 / 2)%%1 < 0.01]
+    # find string carried forward length
+    data.df[, seq_win := sequence(rle(as.character(exclude))$lengths),
+            by = c("subjid", "param")]
+    data.df[exclude != "Exclude-Carried-Forward", seq_win := NA]
+    # relabel all the initial values as "0" -- reorder
+    data.df <- data.df[order(subjid, param, v.orig, agedays)]
+    data.df[which(seq_win == 1)-1, seq_win :=  0]
+    # reorder correctly
+    data.df <- data.df[order(subjid, param, agedays)]
+    # also create labels
+    data.df[, cs := rep(1:length(rle(as.character(exclude))$lengths),
+                        times = rle(as.character(exclude))$lengths),
+            by = c("subjid", "param")]
+    # fix the first one -- have to do this outside of data table
+    data.df[which(seq_win == 0), "cs"] <-
+      data.df[which(seq_win == 0)+1, "cs"]
+    data.df[is.na(seq_win), cs := NA]
+
+    # find th diff between initial and cf
+    data.df[!is.na(seq_win), absdiff := abs(sd.orig - sd.orig[1]),
+            by = c("subjid", "param", "cs")]
+
+    # handle CFs by case
+    data.df[!is.na(seq_win), exclude := (function(df){
+      # only 1 cf in string
+      if (max(seq_win) == 1){
+        df[seq_win != 0 & absdiff < 0.05,
+           exclude := "Exclude-1-CF-deltaZ-<0.05"]
+
+        # use short circuiting to have the lower end covered (>= 0.05)
+        df[seq_win != 0 & absdiff < .1 & wholehalfimp,
+           exclude := "Exclude-1-CF-deltaZ-<0.1 wholehalfimp"]
+      } else if (max(seq_win) > 1){
+        df[seq_win != 0 & agedays/365.25 > 16 & sex == 1 & absdiff < 0.05,
+           exclude := "Exclude-Teen-2-plus-CF-deltaZ-<0.05"]
+        df[seq_win != 0 & agedays/365.25 > 17 & sex == 0 & absdiff < 0.05,
+           exclude := "Exclude-Teen-2-plus-CF-deltaZ-<0.05"]
+
+        df[seq_win != 0 & agedays/365.25 > 16 & sex == 1 & absdiff < .1 &
+             wholehalfimp,
+           exclude := "Exclude-Teen-2-plus-CF-deltaZ-<0.1-wholehalfimp"]
+        df[seq_win != 0 & agedays/365.25 > 17 & sex == 0 & absdiff < .1 &
+             wholehalfimp,
+           exclude := "Exclude-Teen-2-plus-CF-deltaZ-<0.1-wholehalfimp"]
+      }
+    })(copy(.SD)),
+    .SDcols = c('agedays', "seq_win", 'absdiff', "sex", "cs", "wholehalfimp",
+                "exclude"),
+    by = c("subjid", "param", "cs")]
 
   # BIV ----
 
