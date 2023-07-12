@@ -110,10 +110,10 @@ cleanbatch_infants <- function(data.df,
     # we only running carried forwards on valid values, non NNTE values,
     # and non single values
     tmp <- table(paste0(data.df$subjid, "_", data.df$param))
-    single <- paste0(data.df$subjid, "_", data.df$param) %in% names(tmp)[tmp > 1]
+    not_single <- paste0(data.df$subjid, "_", data.df$param) %in% names(tmp)[tmp > 1]
     valid_set <- valid(data.df, include.temporary.extraneous = TRUE) &
       !data.df$nnte_full &
-      single
+      not_single
     data.sub <- data.df[valid_set,]
 
     # for ease, order by subject, parameter, and agedays
@@ -175,7 +175,8 @@ cleanbatch_infants <- function(data.df,
     data.df[is.na(seq_win), cs := NA]
 
     # find th diff between initial and cf
-    data.df[!is.na(seq_win), absdiff := abs(sd.orig - sd.orig[1]),
+    data.df[!is.na(seq_win), absdiff :=
+              abs(sd.orig_uncorr - sd.orig_uncorr[1]),
             by = c("subjid", "param", "cs")]
 
     # handle CFs by case
@@ -312,27 +313,41 @@ cleanbatch_infants <- function(data.df,
 
   exc_nam <- "Exclude-Evil-Twin"
 
-  # first, find out of any re possible evil twins in the first place
-  start_df <- calc_oob_evil_twins(data.df[valid(data.df),])
+  # create the valid set
+  # we only running carried forwards on valid values, non NNTE values,
+  # and non single values, and non pair
+  tmp <- table(paste0(data.df$subjid, "_", data.df$param))
+  not_single_pairs <- paste0(data.df$subjid, "_", data.df$param) %in% names(tmp)[tmp > 2]
+  valid_set <- valid(data.df, include.temporary.extraneous = FALSE) &
+    !data.df$nnte_full & # does not use the "other"
+    not_single_pairs
 
-  if (any(start_df$sum_oob > 2)) {
+  # make sure it's ordered by subjid and parameter
+  data.df <- data.df[order(subjid, param),]
+
+  # first, find out of any re possible evil twins in the first place
+  # NOTE: GO BACK HERE
+  start_df <- calc_oob_evil_twins(data.df[valid_set,])
+
+  if (any(start_df$oob)) {
     if (!quietly)
       cat(sprintf(
         "[%s] Exclude evil twins...\n",
         Sys.time()
       ))
 
-    df <- copy(data.df)
+    # remove the valid set from the beginning
+    df <- copy(data.df[valid_set,])
 
     # start to evaluate and remove evil twins
     data.df[, exclude := (function(df) {
       # where we are updating results
       upd.df <- copy(df)
-      upd.df <- calc_oob_evil_twins(df[valid(df),])
+      upd.df <- calc_oob_evil_twins(upd.df)
       # count the amount of oobs for each subject/param and distribute it out
       upd.df[, `:=` (sum_oob = sum(oob, na.rm = T)), by =.(subjid, param)]
 
-      any_oob <- TRUE
+      any_oob <- any(upd.df$sum_oob > 2)
       # while there are multiple oob, we want to remove
       while (any_oob){
 
@@ -347,6 +362,7 @@ cleanbatch_infants <- function(data.df,
 
         df[upd.df[exclude == exc_nam,], exclude := i.exclude, on = .(line)]
 
+        # reupdate valid (to recalculate OOB -- others are not included)
         upd.df <- calc_oob_evil_twins(df[valid(df),])
         upd.df[, `:=` (sum_oob = sum(oob, na.rm = T)), by =.(subjid, param)]
 

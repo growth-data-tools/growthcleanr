@@ -102,20 +102,16 @@ temporary_extraneous_infants <- function(df) {
 #' @keywords internal
 #' @noRd
 calc_oob_evil_twins <- function(df){
-  # start by determining if a measurement is out of bounds (oob)
-  # different criteria for VLEZ and non-VLEZ
-  # (z-score < -3 in the first 6 months of life )
-  vlez <- df$agedays < 6*30.4375 & df$tbc.sd < -3
+  # # start by determining if a measurement is out of bounds (oob)
 
   # for differences for adjacent, we pad with a high number to default to true
-  oob <- (!vlez & (
-    abs(c(df$tbc.sd[2:nrow(df)], Inf) - df$tbc.sd) > 5 |
-      abs(c(Inf, df$tbc.sd[2:nrow(df)]) - df$tbc.sd) > 5
-  )) |
-    (vlez & (
-      abs(c(df$tbc.sd[2:nrow(df)], Inf) - df$tbc.sd) > 8 |
-        abs(c(Inf, df$tbc.sd[2:nrow(df)]) - df$tbc.sd) > 8
-    ))
+  # we don't want to consider the comparison with the next subj/param
+  oob <- ((
+    (abs(c(df$tbc.sd[2:nrow(df)], Inf) - df$tbc.sd) > 5 &
+       rev(duplicated(rev(paste(df$subjid, "_", df$param))))) |
+      (abs(c(Inf, df$tbc.sd[1:(nrow(df)-1)]) - df$tbc.sd) > 5 &
+         duplicated(paste(df$subjid, "_", df$param)))
+  ))
   df[, "oob" := oob]
 
   return(df)
