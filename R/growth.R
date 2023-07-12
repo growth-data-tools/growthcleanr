@@ -230,6 +230,11 @@ cleangrowth <- function(subjid,
     'Missing',
     'Exclude-Temporary-Extraneous-Same-Day',
     'Exclude-Carried-Forward',
+    # added CF exclusopms
+    "Exclude-1-CF-deltaZ-<0.05",
+    "Exclude-1-CF-deltaZ-<0.1-wholehalfimp",
+    "Exclude-Teen-2-plus-CF-deltaZ-<0.05",
+    "Exclude-Teen-2-plus-CF-deltaZ-<0.1-wholehalfimp",
     'Exclude-SD-Cutoff',
     'Exclude-EWMA-Extreme',
     'Exclude-EWMA-Extreme-Pair',
@@ -802,7 +807,7 @@ cleangrowth <- function(subjid,
 
     # keep the original column names -- we're adding a ton of columns that we
     # want to filter out after correction
-    orig_colnames <- colnames(data.all)
+    orig_colnames <- copy(colnames(data.all))
     # no SDEs
     data.all[, sum_sde := .N, by = c("subjid", "param", "agedays")]
     data.all[, no_sde := sum_sde == 1]

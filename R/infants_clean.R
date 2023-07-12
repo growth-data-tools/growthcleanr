@@ -187,7 +187,7 @@ cleanbatch_infants <- function(data.df,
 
         # use short circuiting to have the lower end covered (>= 0.05)
         df[seq_win != 0 & absdiff < .1 & wholehalfimp,
-           exclude := "Exclude-1-CF-deltaZ-<0.1 wholehalfimp"]
+           exclude := "Exclude-1-CF-deltaZ-<0.1-wholehalfimp"]
       } else if (max(seq_win) > 1){
         df[seq_win != 0 & agedays/365.25 > 16 & sex == 1 & absdiff < 0.05,
            exclude := "Exclude-Teen-2-plus-CF-deltaZ-<0.05"]
@@ -201,10 +201,13 @@ cleanbatch_infants <- function(data.df,
              wholehalfimp,
            exclude := "Exclude-Teen-2-plus-CF-deltaZ-<0.1-wholehalfimp"]
       }
+
+      return(df$exclude)
     })(copy(.SD)),
     .SDcols = c('agedays', "seq_win", 'absdiff', "sex", "cs", "wholehalfimp",
                 "exclude"),
     by = c("subjid", "param", "cs")]
+  }
 
   # BIV ----
 
