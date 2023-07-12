@@ -481,6 +481,10 @@ cleangrowth <- function(subjid,
 
       # NOTE: SD SCORES IN CODE ARE Z IN INFANT DOCS -- USE sd.orig ONLY
 
+      # keep the original, uncorrected, unrecentered zscores
+      data.all[,sd.orig_uncorr := sd.orig]
+      data.all[,z.orig_uncorr := z.orig]
+
       # NOTE: MAY WANT TO SUBSET HERE
 
       # 2b: corrected z scores ----

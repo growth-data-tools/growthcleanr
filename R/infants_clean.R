@@ -225,7 +225,9 @@ cleanbatch_infants <- function(data.df,
 
   # identify absolute cutoffs
   # Min/max weight at birth based on published births
-  data.df[valid(data.df) & param == "WEIGHTKG" & v < 0.2,
+  data.df[valid(data.df) & param == "WEIGHTKG" & v < 0.2 & agedays == 0,
+          exclude := exc_nam]
+  data.df[valid(data.df) & param == "WEIGHTKG" & v < 1 & agedays != 0,
           exclude := exc_nam]
   # Min weight after birth based on rules about who can go home with alowance for significant weight loss -- this is for outpatient data only so very low weight babies would still be in NICU
   data.df[valid(data.df) & param == "WEIGHTKG" & v > 10.5 &
@@ -237,7 +239,7 @@ cleanbatch_infants <- function(data.df,
           exclude := exc_nam]
   # Max weight for <2y based on eval (see do-file from Oct 10 2022), highest plaus weight 29.5kg
   data.df[valid(data.df) & param == "WEIGHTKG" & v > 35 &
-            agedays < 2,
+            agedays*365.25 < 2,
           exclude := exc_nam]
   # Max weight for all based on published data
   data.df[valid(data.df) & param == "WEIGHTKG" & v > 600,
@@ -246,6 +248,8 @@ cleanbatch_infants <- function(data.df,
   # Min/max HC based on analysis in do file from
   # Also, 18 is z=-6 for 22 0/7 in Fenton and 65 is z=6 for 40 0/7
   data.df[valid(data.df) & param == "HEIGHTCM" & v < 18,
+          exclude := exc_nam]
+  data.df[valid(data.df) & param == "HEIGHTCM" & v > 244,
           exclude := exc_nam]
   data.df[valid(data.df) & param == "HEIGHTCM" & v > 65 &
             agedays == 0,
