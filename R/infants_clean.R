@@ -224,47 +224,51 @@ cleanbatch_infants <- function(data.df,
   # add age in years
   data.df[, ageyears := agedays *365.25]
 
+  # calculate the valid step
+  valid_set <- valid(data.df, include.temporary.extraneous = TRUE) &
+    !data.df$nnte_full
+
   exc_nam <- "Exclude-Absolute-BIV"
 
   # identify absolute cutoffs
   # Min/max weight at birth based on published births
-  data.df[valid(data.df) & param == "WEIGHTKG" & v < 0.2 & agedays == 0,
+  data.df[valid_set & param == "WEIGHTKG" & v < 0.2 & agedays == 0,
           exclude := exc_nam]
-  data.df[valid(data.df) & param == "WEIGHTKG" & v < 1 & agedays != 0,
+  data.df[valid_set & param == "WEIGHTKG" & v < 1 & agedays != 0,
           exclude := exc_nam]
   # Min weight after birth based on rules about who can go home with alowance for significant weight loss -- this is for outpatient data only so very low weight babies would still be in NICU
-  data.df[valid(data.df) & param == "WEIGHTKG" & v > 10.5 &
+  data.df[valid_set & param == "WEIGHTKG" & v > 10.5 &
             agedays == 0,
           exclude := exc_nam]
   # Max weight for <2y based on eval (see do-file from Oct 10 2022), highest plaus weight 29.5kg
-  data.df[valid(data.df) & param == "WEIGHTKG" & v < 1 &
+  data.df[valid_set & param == "WEIGHTKG" & v < 1 &
             agedays == 0,
           exclude := exc_nam]
   # Max weight for <2y based on eval (see do-file from Oct 10 2022), highest plaus weight 29.5kg
-  data.df[valid(data.df) & param == "WEIGHTKG" & v > 35 &
+  data.df[valid_set & param == "WEIGHTKG" & v > 35 &
             ageyears < 2,
           exclude := exc_nam]
   # Max weight for all based on published data
-  data.df[valid(data.df) & param == "WEIGHTKG" & v > 600,
+  data.df[valid_set & param == "WEIGHTKG" & v > 600,
           exclude := exc_nam]
 
   # Min/max HC based on analysis in do file from
   # Also, 18 is z=-6 for 22 0/7 in Fenton and 65 is z=6 for 40 0/7
-  data.df[valid(data.df) & param == "HEIGHTCM" & v < 18,
+  data.df[valid_set & param == "HEIGHTCM" & v < 18,
           exclude := exc_nam]
-  data.df[valid(data.df) & param == "HEIGHTCM" & v > 244,
+  data.df[valid_set & param == "HEIGHTCM" & v > 244,
           exclude := exc_nam]
-  data.df[valid(data.df) & param == "HEIGHTCM" & v > 65 &
+  data.df[valid_set & param == "HEIGHTCM" & v > 65 &
             agedays == 0,
           exclude := exc_nam]
 
   # Min/max HC based on analysis in do file from Oct 11 2022
   # Also, 13 is z=-6 for 22 0/7 in Fenton and
-  data.df[valid(data.df) & param == "HEADCM" & v < 13,
+  data.df[valid_set & param == "HEADCM" & v < 13,
           exclude := exc_nam]
-  data.df[valid(data.df) & param == "HEADCM" & v > 75,
+  data.df[valid_set & param == "HEADCM" & v > 75,
           exclude := exc_nam]
-  data.df[valid(data.df) & param == "HEADCM" & v > 50 &
+  data.df[valid_set & param == "HEADCM" & v > 50 &
             agedays == 0,
           exclude := exc_nam]
 
@@ -273,29 +277,29 @@ cleanbatch_infants <- function(data.df,
   # identify z cutoff
   # ***Note, using unrecentered values***
   #  *For weight only do after birth
-  data.df[valid(data.df) & param == "WEIGHTKG" & sd.orig_uncorr < - 25 &
+  data.df[valid_set & param == "WEIGHTKG" & sd.orig_uncorr < - 25 &
             ageyears < 1,
           exclude := exc_nam]
-  data.df[valid(data.df) & param == "WEIGHTKG" & sd.orig_uncorr < -15 &
+  data.df[valid_set & param == "WEIGHTKG" & sd.orig_uncorr < -15 &
             ageyears >= 1,
           exclude := exc_nam]
-  data.df[valid(data.df) & param == "WEIGHTKG" & sd.orig_uncorr > 22,
+  data.df[valid_set & param == "WEIGHTKG" & sd.orig_uncorr > 22,
           exclude := exc_nam]
 
   # *Max z-score for height based on analysis of CHOP data because 15/25 too loose for upper limits
-  data.df[valid(data.df) & param == "HEIGHTCM" & sd.orig_uncorr < - 25 &
+  data.df[valid_set & param == "HEIGHTCM" & sd.orig_uncorr < - 25 &
             ageyears < 1,
           exclude := exc_nam]
-  data.df[valid(data.df) & param == "HEIGHTCM" & sd.orig_uncorr < -15 &
+  data.df[valid_set & param == "HEIGHTCM" & sd.orig_uncorr < -15 &
             ageyears >= 1,
           exclude := exc_nam]
-  data.df[valid(data.df) & param == "HEIGHTCM" & sd.orig_uncorr > 8,
+  data.df[valid_set & param == "HEIGHTCM" & sd.orig_uncorr > 8,
           exclude := exc_nam]
 
   # head circumference
-  data.df[valid(data.df) & param == "HEADCM" & sd.orig_uncorr < -15,
+  data.df[valid_set & param == "HEADCM" & sd.orig_uncorr < -15,
           exclude := exc_nam]
-  data.df[valid(data.df) & param == "HEADCM" & sd.orig_uncorr > 15,
+  data.df[valid_set & param == "HEADCM" & sd.orig_uncorr > 15,
           exclude := exc_nam]
 
 
