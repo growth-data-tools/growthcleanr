@@ -580,12 +580,11 @@ cleangrowth <- function(subjid,
       data.all[cdc_val | (smooth_val & is.na(data.all$sd.c_who)),
                sd.c := data.all$sd.c_cdc[cdc_val | (smooth_val & is.na(data.all$sd.c_who))]]
 
-      # smoth corrected and uncorrected z scores
+      # smooth corrected and uncorrected z scores
       uncorrweight <-  4 - (data.all$agedays/365.25)
       corrweight <- (data.all$agedays/365.25) - 2
       smooth_val <- data.all$agedays/365.25 >= 2 &
-        data.all$agedays/365.25 <= 4 &
-        data.all$param != "HEADCM"
+        data.all$agedays/365.25 <= 4
       data.all[smooth_val,
                sd.corr := (sd.c[smooth_val]*corrweight[smooth_val] +
                              sd.orig[smooth_val]*uncorrweight[smooth_val])/2]
