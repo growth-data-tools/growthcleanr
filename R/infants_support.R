@@ -111,7 +111,13 @@ calc_oob_evil_twins <- function(df){
        rev(duplicated(rev(paste(df$subjid, "_", df$param))))) |
       (abs(c(Inf, df$tbc.sd[1:(nrow(df)-1)]) - df$tbc.sd) > 5 &
          duplicated(paste(df$subjid, "_", df$param)))
+  )) & ((
+    (abs(c(df$ctbc.sd[2:nrow(df)], Inf) - df$ctbc.sd) > 5 &
+       rev(duplicated(rev(paste(df$subjid, "_", df$param))))) |
+      (abs(c(Inf, df$ctbc.sd[1:(nrow(df)-1)]) - df$ctbc.sd) > 5 &
+         duplicated(paste(df$subjid, "_", df$param)))
   ))
+
   df[, "oob" := oob]
 
   return(df)
