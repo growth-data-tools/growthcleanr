@@ -491,7 +491,7 @@ cleangrowth <- function(subjid,
 
       # keep the original column names -- we're adding a ton of columns that we
       # want to filter out after correction
-      orig_colnames <- colnames(data.all)
+      orig_colnames <- copy(colnames(data.all))
 
       # start by reading in fenton data
       fent_foraga <- fread(
@@ -629,8 +629,7 @@ cleangrowth <- function(subjid,
       # replace accordingly in the main dataframe
       data.all[subjid %in% sub_replace, sd.corr := sd.orig]
 
-      # now merge in corrected sd values
-      data.all[, sd.orig := sd.corr]
+      orig_colnames <- c(orig_colnames, "sd.corr")
 
       # remove many added columns
       data.all <- data.all[, ..orig_colnames]
@@ -774,6 +773,9 @@ cleangrowth <- function(subjid,
 
     setkey(data.all, subjid, param, agedays)
     data.all[, tbc.sd := sd.orig - sd.median]
+    # separate out corrected and noncorrected values
+    data.all[, ctbc.sd := sd.corr - sd.median]
+
 
     if (sdrecentered.filename != "") {
       write.csv(data.all, sdrecentered.filename, row.names = FALSE)
