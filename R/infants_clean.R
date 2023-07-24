@@ -524,7 +524,7 @@ cleanbatch_infants <- function(data.df,
 
         # 11i.  If there was at least one subject who had a potential exclusion identified in step 11c, repeat steps 11b-11g. If there were no subjects with potential
         #     exclusions identified in step 11c, move on to step 12.
-        newly.excluded <- sum(df$exclude %in% c('Exclude-EWMA1-Extreme', 'Exclude-EWMA-Extreme-Pair'))
+        newly.excluded <- sum(df$exclude %in% c('Exclude-EWMA1-Extreme'))
         if (newly.excluded > num.ewma.excluded) {
           num.ewma.excluded <- newly.excluded
         } else {
@@ -539,151 +539,319 @@ cleanbatch_infants <- function(data.df,
   data.df[exclude == 'Exclude-Temporary-Extraneous-Same-Day', exclude := 'Include']
   data.df[temporary_extraneous_infants(data.df), exclude := 'Exclude-Temporary-Extraneous-Same-Day']
 
-  # SDEs ----
+  # 13: SDEs ----
 
-  # STOP HERE: need to adapt to new work
+  if (!quietly)
+    cat(sprintf(
+      "[%s] Exclude same day extraneous...\n",
+      Sys.time()
+    ))
 
-  # # prepare a list of valid rows and initialize variables for convenience
-  # valid.rows <- valid(data.df)
-  # data.df[, `:=`(
-  #   ewma.all = as.double(NaN),
-  #   abssum2 = as.double(NaN),
-  #   median.other.sd = as.double(NaN),
-  #   extraneous = FALSE
-  # )]
-  #
-  # # 12c.	Calculate a EWMA step for all subjects/parameters with duplicates/extraneous and at
-  # #       least one non-extraneous value with the following modifications
-  # #   i.	For calculating the EWMA, include only the extraneous selected in 12c
-  # #  ii.	Calculate dewma_* for all values of extraneous
-  # # iii.	You do not need to calculate EWMAbef or EWMAaft for this step
-  #
-  # # determine proportion of days with extraneous/duplication for each parameter ahead of time for efficiency
-  # dup.ratio.df <- data.df[subjid %in% subj.dup &
-  #                           (valid.rows |
-  #                              temp.dups), list(dup = (.N > 1)), by = .(subjid, param, agedays)][j = list(dup.ratio =
-  #                                                                                                           mean(dup)), keyby = .(subjid, param)]
-  # # identify subject/parameters where there is duplication but at least one day with no extraneous for that parameter
-  # subj.param.not.all.dups <- dup.ratio.df[dup.ratio < 1.0, list(subjid, param)]
-  # # identify subject/parameters where there is duplication for all days for that parameter
-  # subj.param.all.dups <- dup.ratio.df[dup.ratio == 1, list(subjid, param)]
-  # subj.all.dups <- subj.param.all.dups[, unique(subjid)]
-  # # perform ewma for subjects with extraneous
-  # data.df[subjid %in% subj.dup &
-  #           valid.rows, ewma.all := ewma(agedays, tbc.sd, ewma.exp, ewma.adjacent =
-  #                                          FALSE), by = .(subjid, param)]
-  # # note: at this point, only one ewma.all exists per param on a given day for a subject, so sort(ewma.all)[1] will returns the non-missing ewma.all
-  # data.df[subjid %in% subj.dup, ewma.all := sort(ewma.all)[1], by = .(subjid, param, agedays)]
-  #
-  # # iv.  Calculate abssum2_*=|2*dewma_*|+|tbc*sd| (note that this is different from how we calculated abssum_* in step 11).
-  # # NOTE: only children with more than one ageday with valid measurements will have a valid ewma from above
-  # data.df[, abssum2 := 2 * abs(tbc.sd - ewma.all) + abs(tbc.sd)]
-  #
-  # # 12d.  For each subject/parameter/age with extraneous and at least one non-extraneous value:
-  # #   i.  Replace exc_*=7 for all values except the value that has the smallest abssum2_*.
-  # data.df[data.table(subj.param.not.all.dups), extraneous := seq_along(abssum2) != which.min(abssum2), by =
-  #           .(subjid, param, agedays)]
-  # data.df[temp.dups, exclude := 'Include']
-  # data.df[(valid.rows |
-  #            temp.dups) &
-  #           extraneous, exclude := 'Exclude-Extraneous-Same-Day']
-  # #  ii.  Determine dup_tot_* (# of days with extraneous for that subject/parameter) and nodup_tot_* (# of days with nonexlcuded
-  # #       non-extraneous for that subject/parameter).
-  # # iii.  If dup_tot_*/(dup_tot_*+nodup_tot_*) is greater than 1/2, replace exc_*=7 for all extraneous for that subject/parameter
-  # #       for each age where the  largest measurement minus the smallest measurement for that subject/parameter/age is larger than
-  # #       the maximum difference (ht 3cm; wt 0-9.999 kg 0.25kg; wt 10-29.9999 kg 0.5 kg; wt 30kg and higher 1 kg).
-  #
-  # data.df[data.table(dup.ratio.df[dup.ratio > 1 / 2, list(subjid, param)]), exclude := (function(df) {
-  #   df[, `:=`(tbc.sd.min = as.double(NaN),
-  #             tbc.sd.max = as.double(NaN))]
-  #   df[valid(
-  #     exclude,
-  #     include.extraneous = TRUE,
-  #     include.temporary.extraneous = TRUE
-  #   ), `:=`(tbc.sd.min = min(tbc.sd),
-  #           tbc.sd.max = max(tbc.sd))]
-  #   df[tbc.sd.max - tbc.sd.min > ifelse(param == 'HEIGHTCM',
-  #                                       3,
-  #                                       ifelse(
-  #                                         param == 'WEIGHTKG',
-  #                                         ifelse(tbc.sd.min < 10, 0.25, ifelse(tbc.sd.min < 30, 0.5, 1)),
-  #                                         NA
-  #                                       )),
-  #      exclude := 'Exclude-Extraneous-Same-Day']
-  #   return(df$exclude)
-  # })(copy(.SD)), .SDcols = c('exclude', 'tbc.sd'), by = .(subjid, param, agedays)]
-  #
-  # # 12e.	For each subject/parameter/age with extraneous and no nonextraneous values:
-  # #   i.	Replace exc_*=7 for all values except the value with the smallest |tbc*sd-median_tbcOsd|. If median_tbcOsd is missing because there are no values
-  # #       for the other parameter, randomly choose one extraneous value for each subject/parameter/age to keep as exc_*=0 and replace exc_*=7 for all other
-  # #       extraneous for that subject/parameter/age.
-  # #  ii.  If the largest measurement minus the smallest measurement for that subject/parameter/age is larger than the maximum difference
-  # #       (ht 3cm; wt 0-9.999 kg 0.25kg; wt 10-29.9999 kg 0.5 kg; wt 30kg and higher 1 kg)., replace exc_*=7 for all extraneous for that
-  # #       subject/parameter/age.
-  #
-  # # calculate median for other parameter (restrict to subjects with all duplication for at least one parameter)
-  # data.df[subjid %in% subj.all.dups, exclude := (function(subj.df) {
-  #   # flag days that have extraneous / potentially valid parameters
-  #   subj.df[, `:=`(
-  #     extraneous.this.day = FALSE,
-  #     extraneous = FALSE,
-  #     tbc.sd.min = as.double(NaN),
-  #     tbc.sd.max = as.double(NaN)
-  #   )]
-  #   valid.rows = valid(
-  #     subj.df,
-  #     include.extraneous = TRUE,
-  #     include.temporary.extraneous = TRUE
-  #   )
-  #   subj.df[valid.rows, extraneous.this.day := (.N > 1), by = .(param, agedays)]
-  #   for (p in subj.df[j = unique(param)]) {
-  #     median.sd <- subj.df[param != p &
-  #                            !extraneous.this.day, median(tbc.sd)]
-  #     subj.df[param == p, median.other.sd := median.sd]
-  #   }
-  #   # safety check -- assign median.other.sd==0 to ensure "which.min" functions correctly below
-  #   subj.df[is.na(median.other.sd), median.other.sd := 0]
-  #   # identify rows as extraneous where |tbc*sd-median_tbcOsd| is not at the minimum value
-  #   subj.df[extraneous.this.day == TRUE, extraneous := (seq_along(median.other.sd) != which.min(abs(tbc.sd - median.other.sd))), by =
-  #             .(param, agedays)]
-  #   subj.df[extraneous.this.day &
-  #             !extraneous, exclude := 'Include']
-  #   subj.df[extraneous.this.day &
-  #             extraneous, exclude := 'Exclude-Extraneous-Same-Day']
-  #   subj.df[extraneous.this.day == TRUE, `:=`(tbc.sd.min = min(tbc.sd),
-  #                                             tbc.sd.max = max(tbc.sd)), by = .(param, agedays)]
-  #   subj.df[tbc.sd.max - tbc.sd.min > ifelse(param == 'HEIGHTCM',
-  #                                            3,
-  #                                            ifelse(
-  #                                              param == 'WEIGHTKG',
-  #                                              ifelse(tbc.sd.min < 10, 0.25, ifelse(tbc.sd.min < 30, 0.5, 1)),
-  #                                              NA
-  #                                            )),
-  #           exclude := 'Exclude-Extraneous-Same-Day']
-  #
-  #   # identify kids who had an SD or EWMA extreme excluded that was a extraneous and re-label as "Exclude-Extraneous-Same-Day"
-  #   subj.df[, extraneous.this.day := FALSE]
-  #   # consider any non-missing measurement when determining presence of extraneous
-  #   subj.df[exclude != 'Missing', extraneous.this.day := (.N > 1), by =
-  #             .(param, agedays)]
-  #   subj.df[extraneous.this.day &
-  #             exclude %in% c('Exclude-SD-Cutoff',
-  #                            'Exclude-EWMA-Extreme',
-  #                            'Exclude-EWMA-Extreme-Pair'), exclude := 'Exclude-Extraneous-Same-Day']
-  #
-  #   return(subj.df$exclude)
-  # })(copy(.SD)), .SDcols = c('param', 'agedays', 'exclude', 'tbc.sd'), by =
-  #   .(subjid)]
-  #
-  # # 12f.  For any values that were excluded with exc_*=4, 5, or 6 that are also extraneous, replace exc_*=7.
-  # data.df[subjid %in% subj.dup, exclude := (function(subj.df) {
-  #   if (.N > 1) {
-  #     subj.df[exclude %in% c('Exclude-SD-Cutoff',
-  #                            'Exclude-EWMA-Extreme',
-  #                            'Exclude-EWMA-Extreme-Pair'), exclude := 'Exclude-Extraneous-Same-Day']
-  #   }
-  #   return(subj.df$exclude)
-  # })(copy(.SD)), .SDcols = c('exclude'), by = .(subjid, param, agedays)]
+  # prepare a list of valid rows and initialize variables for convenience
+  valid.rows <- valid(data.df, include.temporary.extraneous = TRUE) &
+    !data.df$nnte_full  # does not use the "other"
+
+  data.df <- data.df[valid.rows, exclude := (function(subj_df) {
+    # keep the original indices and exclude to overwrite
+    orig_idx <- copy(subj_df$index)
+    exclude_all <- copy(subj_df$exclude)
+    if (nrow(subj_df) > 0 & any(subj_df$exclude == "Exclude-Temporary-Extraneous-Same-Day")){
+      # for convenience
+      subj_df[, extraneous := exclude == "Exclude-Temporary-Extraneous-Same-Day"]
+
+      step <- "Exclude-SDE-Identical"
+
+      # identify duplicate days
+      dup_days <- unique(subj_df$agedays[subj_df$extraneous])
+
+      # first, exclude identical measurements on the same day
+      ide_ids <- c() # where we keep the identical ones
+      for (dd in dup_days){
+        # count amount of unique values
+        s_df <- copy(subj_df[subj_df$agedays == dd,])
+        ide_tab <- table(s_df$v)
+        if (any(ide_tab > 1)){
+          # for each identical, keep only the first one, by id
+          # (ordered initially)
+          ide_ids <- c(ide_ids, s_df$index[
+            as.character(s_df$v) %in% names(ide_tab[ide_tab > 1])
+          ][duplicated(
+            s_df$v[
+              as.character(s_df$v) %in% names(ide_tab[ide_tab > 1])
+            ]
+          )])
+        }
+      }
+      criteria <- subj_df$index %in% ide_ids
+
+      # we're going to update excludes before moving on to the rest of this
+      # subject
+      exclude_all[criteria] <- step
+
+      subj_df <- subj_df[!criteria,]
+
+      if (any(criteria)){
+        # reevaluate temp same day
+        subj_df[, extraneous := temporary_extraneous_infants(subj_df)]
+
+        # identify duplicate days
+        dup_days <- unique(subj_df$agedays[subj_df$extraneous])
+      }
+
+      # 13B: identify similar groups
+      similar_ids <- c()
+      for (dd in dup_days){
+        # first, calculate if all SDEs on a single day are similar
+        s_df <- copy(subj_df[subj_df$agedays == dd,])
+
+        similar <- if (subj_df$param[1] == "WEIGHTKG"){
+          max(s_df$v)/min(s_df$v) <= 1.03 & max(s_df$v) - min(s_df$v) <= 2.5
+        } else if (subj_df$param[1] == "HEIGHTCM"){
+          (max(s_df$v) - min(s_df$v) <  2.541 & min(s_df$v) < 127) |
+            (max(s_df$v) - min(s_df$v) <  5.081 & min(s_df$v) >= 127)
+        } else { # head circumference
+          max(s_df$v) - min(s_df$v) <  1.271
+        }
+
+        if (similar){
+          similar_ids <- c(similar_ids, s_df$index)
+        }
+      }
+
+      # 13C: exclude non similar groups
+
+      step <- "Exclude-SDE-All-Exclude"
+      # now the rest!
+
+      # next, calculate the duplicate ratio -- what proportion of days are
+      # duplicated
+      dup_ratio <-
+        length(unique(subj_df$agedays[duplicated(subj_df$agedays)]))/
+        length(unique(subj_df$agedays))
+      # also check whether or not any same-days are adjacent -- need 4 at least
+      # rolling windows of day differences -- we are looking for 0,x,0
+      if (nrow(subj_df) > 3){
+        roll <- embed(diff(subj_df$agedays), 3)
+        adjacent <- sapply(1:nrow(roll), function(x){
+          all(c(roll[x,1] == 0, roll[x,2] != 0, roll[x,3] == 0))
+        })
+
+        # get age days & rows that had adjacent
+        idx_roll <- c(embed(1:nrow(subj_df),4)[adjacent,, drop = FALSE])
+        idx_adj <- which(subj_df$agedays %in% subj_df$agedays[idx_roll])
+      } else {
+        adjacent <- F
+        idx_adj <- idx_roll <- c()
+      }
+
+      # if dup ratio is too high, we exclude all
+      # if adjacent, we exclude only those relevant sdes
+      # same day extraneous -- for strict (default)
+      criteria <-
+          # looser criteria:
+          # 1.	Exclude for ratio if ratio >1/3
+          # 2.	Exclude for adjacent if 2 are adjacent AND ratio >1/4
+          # 3.	Exclude for adjacent if 2 are adjacent AND those 2 are the first 2 or last 2 measurements for the subject/parameter
+          #   note: if the first or last is sde and it's adjacent, by default
+          #   that means it's the first or last two that are adjacent
+          # 4.	Exclude for adjacent if 3 or more are adjacent
+          if (dup_ratio > (1/3)){
+            subj_df$extraneous
+          } else if (
+            (sum(adjacent) == 1 & dup_ratio > (1/4)) |
+            (sum(adjacent) == 1 & c(1) %in% idx_adj) |
+            (sum(adjacent) == 1 &
+             c(nrow(subj_df)) %in% idx_adj) |
+            (sum(adjacent) >= 2)
+          ){
+            # adjacent sum == 1 means 2 are adjacent
+            # only exclude sdes that are adjacent
+            subj_df$agedays %in% subj_df$agedays[idx_roll]
+          } else {
+            rep(F, nrow(subj_df))
+          }
+      # re-include similar groups
+      criteria[subj_df$index %in% similar_ids] <- FALSE
+
+      # we're going to update excludes before moving on to the rest of this
+      # subject
+      exclude_all[orig_idx %in% subj_df$index[criteria]] <- step
+
+      subj_df <- subj_df[!criteria,]
+
+      if (any(criteria)){
+        # reevaluate temp same day
+        subj_df[, extraneous := temporary_extraneous_infants(subj_df)]
+
+        # identify duplicate days
+        dup_days <- unique(subj_df$agedays[subj_df$extraneous])
+      }
+
+      step_extreme <- "Exclude-SDE-All-Extreme"
+      step <- "Exclude-SDE-EWMA"
+      # next, check for trivial differences for SDEs on the same day
+      # this only works if there are non-sde days
+
+      if (any(subj_df$extraneous)){
+        # 13D: calculating ewmas
+
+        # check for SDEs by EWMA -- alternate calculate excluding other SDEs
+        all_sdes <- duplicated(subj_df$agedays) |
+          duplicated(subj_df$agedays, fromLast = T)
+
+        # first, calculate which exponent we want to put through (pass a different
+        # on for each exp)
+        tmp <- data.frame(
+          "before" = abs(subj_df$agedays - c(NA, subj_df$agedays[1:(nrow(subj_df)-1)])),
+          "after" = abs(subj_df$agedays - c(subj_df$agedays[2:(nrow(subj_df))], NA))
+        )
+        maxdiff <- sapply(1:nrow(tmp), function(x){max(tmp[x,], na.rm = T)})
+        exp_vals <- rep(-1.5, nrow(tmp))
+        exp_vals[maxdiff > 365.25] <- -2.5
+        exp_vals[maxdiff > 730.5] <- -3.5
+        subj_df[, exp_vals := exp_vals]
+
+        # calculate the time difference for all values, as well as exponential
+        delta <- as_matrix_delta(subj_df$agedays)
+        delta <- ifelse(delta == 0, 0, (delta) ^ subj_df$exp_vals)
+
+        rem_ids_extreme <- c()
+        rem_ids <- c()
+        for (dd in dup_days){
+          # first, calculate if all SDEs on a single day are similar
+          s_df <- copy(subj_df[subj_df$agedays == dd,])
+
+          similar <- if (subj_df$param[1] == "WEIGHTKG"){
+            max(s_df$v)/min(s_df$v) <= 1.03 & max(s_df$v) - min(s_df$v) <= 2.5
+          } else if (subj_df$param[1] == "HEIGHTCM"){
+            (max(s_df$v) - min(s_df$v) <  2.541 & min(s_df$v) < 127) |
+              (max(s_df$v) - min(s_df$v) <  5.081 & min(s_df$v) >= 127)
+          } else { # head circumference
+            max(s_df$v) - min(s_df$v) <  1.271
+          }
+
+          if (!similar){
+            # 13E
+
+            # calculate dewma for each SDE on this day
+            dewma <- sapply(1:nrow(s_df), function(x){
+              ind <- subj_df$index == s_df[[x, "index"]]
+
+              ewma_res <- sum(subj_df$tbc.sd[!all_sdes]*delta[ind,!all_sdes])/
+                sum(delta[ind, !all_sdes])
+
+              # delta ewma
+              return(s_df$tbc.sd[x] - ewma_res)
+            })
+            absdewma <- abs(dewma)
+
+            if (min(absdewma) > 1){
+              rem_ids_extreme <- c(rem_ids_extreme, s_df$index)
+            } else {
+              de_day <- which.min(abs(dewma))
+
+              # keep the value with the lowest EWMA -- do not keep rest
+              rem_ids <- c(rem_ids, s_df$index[-de_day])
+            }
+          }
+        }
+        # re-include similar groups
+        criteria_extreme <- subj_df$index %in% rem_ids_extreme
+        criteria <- subj_df$index %in% rem_ids
+        # we're going to update excludes before moving on to the rest of this
+        # subject
+        exclude_all[orig_idx %in% subj_df$index[criteria_extreme]] <- step_extreme
+        exclude_all[orig_idx %in% subj_df$index[criteria]] <- step
+
+        subj_df <- subj_df[!(criteria | criteria_extreme),]
+
+        if (any(c(criteria, criteria_extreme))){
+          # reevaluate temp same day
+          subj_df[, extraneous := temporary_extraneous_infants(subj_df)]
+
+          # identify duplicate days
+          dup_days <- unique(subj_df$agedays[subj_df$extraneous])
+        }
+      }
+
+      # all remaining are similar
+      step_extreme <- "Exclude-SDE-All-Extreme"
+      step <- "Exclude-SDE-One-Day"
+      if (any(subj_df$extraneous)){
+        # check for SDEs
+        all_sdes <- duplicated(subj_df$agedays) |
+          duplicated(subj_df$agedays, fromLast = T)
+
+        rem_ids <- c()
+        rem_ids_extreme <- c()
+        for (dd in dup_days){
+          # first, calculate if all SDEs on a single day are similar
+          s_df <- copy(subj_df[subj_df$agedays == dd,])
+
+          # find the DOP (designated other parameter)
+          dop <-
+            data.df[subjid == s_df$subjid[1] & param == get_dop(s_df$param[1]) &
+                      agedays == s_df$agedays[1],]
+
+          if (nrow(dop) > 0){
+            # 13F
+            med_diff <- abs(median(dop$tbc.sd)-s_df$tbc.sd)
+
+            if (min(med_diff) > 2){
+              rem_ids_extreme <- c(rem_ids_extreme, s_df$index)
+            } else {
+              de_day <- which.min(med_diff)
+
+              # keep the value with the lowest median diff -- do not keep rest
+              rem_ids <- c(rem_ids, s_df$index[-de_day])
+            }
+          } else if (nrow(s_df) > 3){
+            #13G
+            med_diff <- abs(median(s_df$tbc.sd)-s_df$tbc.sd)
+
+            # if even and the middle two values are equidistant
+            if (nrow(s_df)%%2 == 0 &
+                diff(sort(med_diff)[1:2]) < 1e-8){
+              # if the ageday is even, keep the lower z score; otherwise,
+              # keep higher
+              keep_val <-
+                if (s_df$agedays[1]%%2 == 0){
+                  which(s_df$v == min(s_df$v[order(med_diff)[1:2]]))
+                } else {
+                  which(s_df$v == max(s_df$v[order(med_diff)[1:2]]))
+                }
+              rem_ids <- c(rem_ids, s_df$index[-keep_val])
+            }
+
+            de_day <- which.min(med_diff)
+            # keep the value with the lowest median diff -- do not keep rest
+            rem_ids <- c(rem_ids, s_df$index[-de_day])
+          } else {
+            # 13H
+
+            # 2 values, keep based on the age days
+            keep_val <-
+            if (s_df$agedays[1]%%2 == 0){
+              which.min(s_df$v)
+            } else {
+              which.max(s_df$v == max(s_df$v[order(med_diff)[1:2]]))
+            }
+            rem_ids <- c(rem_ids, s_df$index[-keep_val])
+          }
+        }
+
+        # re-include similar groups
+        criteria_extreme <- subj_df$index %in% rem_ids_extreme
+        criteria <- subj_df$index %in% rem_ids
+        # we're going to update excludes before moving on to the rest of this
+        # subject
+        exclude_all[orig_idx %in% subj_df$index[criteria_extreme]] <- step_extreme
+        exclude_all[orig_idx %in% subj_df$index[criteria]] <- step
+      }
+    }
+
+    return(exclude_all)
+  })(copy(.SD)), by = .(subjid, param), .SDcols = colnames(data.df)]
 
 
   # end ----

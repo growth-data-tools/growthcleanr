@@ -1,5 +1,22 @@
 # Infants support
 
+# supporting (all) ---
+
+# function that takes in a parameter name and returns the designated other
+# parameter (DOP)
+get_dop <- function(param_name){
+  dop <- if (param_name == "WEIGHTKG"){
+    "HEIGHTCM"
+  } else if (param_name == "HEIGHTCM"){
+    "WEIGHTKG"
+  } else { # HEADCM
+    "HEIGHTCM"
+  }
+
+  return(dop)
+}
+
+# temporary extraneous ----
 #' Function for temporary extraneous (step 5):
 #' 5.  Temporary extraneous: I use extraneous to refer to more than more than one recorded value for a parameter on the same day,
 #'     and we need to select which one to include in our analysis. The overall strategy will be to select a measurement using a simple
