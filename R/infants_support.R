@@ -139,3 +139,58 @@ calc_oob_evil_twins <- function(df){
 
   return(df)
 }
+
+# moderate ewma ----
+
+# function to calculate and recenter z scores for a given column
+# df: data frame with parameter, agedays, sex, cn
+# cn: column name to calculate, smooth, and recenter
+# ref.data.path: reference data path
+#
+# returns df with additional column, tbc.(cn), which is the recentered z-score
+# for the input
+calc_and_recenter_z_scores <- function(df, cn, ref.data.path){
+  # for infants, use z and who
+  measurement.to.z <- read_anthro(ref.data.path, cdc.only = TRUE,
+                                  infants = T)
+  measurement.to.z_who <- read_anthro(ref.data.path, cdc.only = FALSE,
+                                      infants = T)
+
+  # calculate "standard deviation" scores
+  if (!quietly)
+    cat(sprintf("[%s] Calculating SD-scores...\n", Sys.time()))
+  df[, cn.orig_cdc := measurement.to.z(param, agedays, sex, get(cn), TRUE)]
+  df[, cn.orig_who := measurement.to.z_who(param, agedays, sex, get(cn), TRUE)]
+
+  # smooth z-scores/SD scores between ages 1 - 3yo using weighted scores
+  # older uses cdc, younger uses who
+  who_weight <- 4 - (df$agedays/365.25)
+  cdc_weight <- (df$agedays/365.25) - 2
+
+  smooth_val <- df$agedays/365.25 >= 2 &
+    df$agedays/365.25 <= 4 &
+    df$param != "HEADCM"
+  df[smooth_val,
+           cn.orig := (cn.orig_cdc[smooth_val]*cdc_weight[smooth_val] +
+                         cn.orig_who[smooth_val]*who_weight[smooth_val])/2]
+
+  # otherwise use WHO and CDC for older and younger, respectively
+  who_val <- df$param == "HEADCM" |
+    df$agedays/365.25 < 2
+  df[who_val | (smooth_val & is.na(df$cn.orig_cdc)),
+           cn.orig := df$cn.orig_who[who_val  | (smooth_val & is.na(df$cn.orig_cdc))]]
+
+  cdc_val <- df$param != "HEADCM" |
+    df$agedays/365.25 > 4
+  df[cdc_val | (smooth_val & is.na(df$cn.orig_who)),
+           cn.orig := df$cn.orig_cdc[cdc_val | (smooth_val & is.na(df$sd.orig_who))]]
+
+  # now recenter -- already has the sd.median from the original recentering
+  setkey(df, subjid, param, agedays)
+  df[, tbc.cn := cn.orig - sd.median]
+
+  # rename ending column
+  setnames(df, "tbc.cn", paste0("tbc.", cn))
+
+  return(df)
+}
