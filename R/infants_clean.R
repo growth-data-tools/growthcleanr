@@ -873,9 +873,17 @@ cleanbatch_infants <- function(data.df,
 
   # calculate plus/minus values
 
+  # STOP HERE: fix the valid
+
+
+
   # order just for ease later
   data.df <- data.df[order(subjid, param, agedays),]
   data.df <- data.df[valid.rows, exclude := (function(df) {
+    # save initial exclusions to keep track
+    ind_all_df <- copy(df$index)
+    exclude_all_df <- copy(df$exclude)
+
     # 15A: calc plus/minus values
     df[param == "WEIGHTKG", p_plus := 1.05*v]
     df[param == "WEIGHTKG", p_minus := .95*v]
@@ -891,10 +899,9 @@ cleanbatch_infants <- function(data.df,
     df <- calc_and_recenter_z_scores(df, "p_minus", ref.data.path)
 
     #15c: exclude agedays = 0 for ht, hc
-    df <- df[(param != "HEIGHTCM" | param != "HEADCM") & agedays != 0, ]
-
     #15d: calculate ewma -- run within a subject/parameter
-    df <- df[, exclude := (function(df_sub) {
+    df <- df[(param != "HEIGHTCM" | param != "HEADCM") & agedays != 0,
+             exclude := (function(df_sub) {
       # save initial exclusions to keep track
       ind_all <- copy(df_sub$index)
       exclude_all <- copy(df_sub$exclude)
@@ -1103,7 +1110,7 @@ cleanbatch_infants <- function(data.df,
           #set up to continue on
           testing <- TRUE
 
-          df_sub <- df_sub[ind_all != idx, ]
+          df_sub <- df_sub[index != idx, ]
         } else {
           testing <- FALSE
         }
