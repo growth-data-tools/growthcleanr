@@ -1574,7 +1574,7 @@ cleanbatch_infants <- function(data.df,
   # we only running carried forwards on valid values, non NNTE values,
   # and non single values, and non weight
   tmp <- table(paste0(data.df$subjid, "_", data.df$param))
-  only_single_pairs <- paste0(data.df$subjid, "_", data.df$param) %in% names(tmp)[tmp > 2]
+  only_single_pairs <- paste0(data.df$subjid, "_", data.df$param) %in% names(tmp)[tmp <= 2]
   valid_set <- valid(data.df, include.temporary.extraneous = FALSE) &
     !data.df$nnte_full & # does not use the "other"
     only_single_pairs
@@ -1582,21 +1582,42 @@ cleanbatch_infants <- function(data.df,
   # order just for ease later
   data.df <- data.df[order(subjid, param, agedays),]
   data.df <- data.df[valid_set, exclude := (function(df) {
+    # save initial exclusions to keep track
+    ind_all <- copy(df$index)
+    exclude_all <- copy(df$exclude)
+
     # 19A: is it a single or a pair?
     is_single <- nrow(df) == 1
+
+    # find the DOP (designated other parameter)
+    dop <-
+      data.df[subjid == df$subjid[1] & param == get_dop(df$param[1]) &
+                exclude == "Include",]
+
+    # 19D: calculate the voi comparison
+    if (nrow(dop) > 0){
+      for (i in 1:nrow(df)){
+        comp_val <-
+          if (df$agedays[i] %in% dop$agedays){
+            abs(dop[dop$agedays == df$agedays[i], tbc.sd] - df[i, tbc.sd])
+          } else {
+            abs(median(dop$tbc.sd) - df[i, tbc.sd])
+          }
+
+        df[i, comp_diff := comp_val]
+      }
+    } else {
+      df[, comp_diff := rep(NA, nrow(df))]
+    }
 
     # 19B/C: for pairs, calculate info
     if (!is_single){
       diff_tbc.sd <- df[2, tbc.sd] - df[1, tbc.sd]
-      diff_tbc.sd <- df[2, tbc.sd] - df[1, tbc.sd]
+      diff_ctbc.sd <- df[2, ctbc.sd] - df[1, ctbc.sd]
       diff_agedays <- df[2, agedays] - df[1, agedays]
 
       abs_tbd.sd <- abs(df[1, tbc.sd])
-
-      # find the DOP (designated other parameter)
-      dop <-
-        data.df[subjid == df$subjid[1] & param == get_dop(df$param[1]) &
-                  agedays == df$agedays[1],]
+      abs_ctbd.sd <- abs(df[1, ctbc.sd])
 
       med_dop <-
         if (nrow(dop) > 0){
@@ -1604,11 +1625,45 @@ cleanbatch_infants <- function(data.df,
         } else {
           NA
         }
+      med_cdop <-
+        if (nrow(dop) > 0){
+          median(dop$ctbc.sd)
+        } else {
+          NA
+        }
+
+      # 19E: which is larger
+      max_ind <- if (!all(is.na(df$comp_diff))){
+        which.max(df$comp_diff)
+      } else {
+        which.max(df$tbc.sd)
+      }
+
+      # 19F/G: which exclusion
+      if (diff_tbc.sd > 4 & (diff_ctbc.sd > 4 | is.na(diff_ctbc.sd)) &
+          diff_agedays >=365.25){
+        df[max_ind, exclude := "Exclude-2-meas->1-year"]
+      } else if (diff_tbc.sd > 2.5 & (diff_ctbc.sd > 4 | is.na(diff_ctbc.sd)) &
+                 diff_agedays < 365.25){
+        df[max_ind, exclude := "Exclude-2-meas-<1-year"]
+      }
+
+      # save the results
+      exclude_all <- df$exclude
+
+      # 19H
+      # if one needs to get removed, we want to reevaluate as a single
+      df <- df[exclude == "Include",]
     }
 
+    if (nrow(df) == 1){
+      df[(abs(tbc.sd) > 3 & !is.na(comp_diff) & comp_diff > 5) |
+           (abs(tbc.sd) > 5 & is.na(comp_diff)),
+         exclude := "Exclude-1-meas"]
+    }
 
-    return(df$exclude)
-  })(copy(.SD)), by = .(subjid, param), .SDcols = colnames(df)]
+    return(exclude_all)
+  })(copy(.SD)), by = .(subjid, param), .SDcols = colnames(data.df)]
 
   # end ----
 
