@@ -1665,6 +1665,31 @@ cleanbatch_infants <- function(data.df,
     return(exclude_all)
   })(copy(.SD)), by = .(subjid, param), .SDcols = colnames(data.df)]
 
+  # 21: error load ----
+
+  valid_set <- !data.df$nnte_full
+
+  data.df[valid_set,
+          err_ratio := sum(!exclude %in%
+                             c("Include",
+                               "Exclude-SDE-Identical",
+                               "Exclude-SDE-All-Exclude",
+                               "Exclude-SDE-All-Extreme",
+                               "Exclude-SDE-EWMA",
+                               "Exclude-SDE-All-Extreme",
+                               "Exclude-SDE-One-Day",
+                               "Exclude-Carried-Forward",
+                               "Exclude-1-CF-deltaZ-<0.05",
+                               "Exclude-1-CF-deltaZ-<0.1-wholehalfimp",
+                               "Exclude-Teen-2-plus-CF-deltaZ-<0.05",
+                               "Exclude-Teen-2-plus-CF-deltaZ-<0.1-wholehalfimp"
+                             ))/.N,
+          by = c("subjid", "param")]
+
+  data.df[valid_set & err_ratio > .4,
+          exclude := "Exclude-Error-load"]
+
+
   # end ----
 
   if (!quietly)
@@ -1672,5 +1697,5 @@ cleanbatch_infants <- function(data.df,
   if (!quietly & parallel)
     sink()
 
-  return(data.df[j = .(line, exclude, tbc.sd, tbc.other.sd, param)]) #debugging
+  return(data.df[j = .(line, exclude, tbc.sd, param)]) #debugging
 }
