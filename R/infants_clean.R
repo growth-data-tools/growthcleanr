@@ -834,7 +834,7 @@ cleanbatch_infants <- function(data.df,
             if (s_df$agedays[1]%%2 == 0){
               which.min(s_df$v)
             } else {
-              which.max(s_df$v == max(s_df$v[order(med_diff)[1:2]]))
+              which.max(s_df$v)
             }
             rem_ids <- c(rem_ids, s_df$index[-keep_val])
           }
@@ -855,7 +855,11 @@ cleanbatch_infants <- function(data.df,
 
   # 15: moderate EWMA ----
 
-  # THINK ABOUT NNTE FULL HERE
+  if (!quietly)
+    cat(sprintf(
+      "[%s] Exclude moderate EWMA...\n",
+      Sys.time()
+    ))
 
   # create the valid set
   # we only running carried forwards on valid values, non NNTE values,
@@ -1113,6 +1117,12 @@ cleanbatch_infants <- function(data.df,
 
   # 16: moderate EWMA for birth HT and HC ----
 
+  if (!quietly)
+    cat(sprintf(
+      "[%s] Exclude moderate EWMA for birth height and head circumference...\n",
+      Sys.time()
+    ))
+
   # create the valid set
   # we only running carried forwards on valid values, non NNTE values,
   # and non single values, and non weight
@@ -1260,7 +1270,11 @@ cleanbatch_infants <- function(data.df,
 
   # 17: raw differences ----
 
-  # NOTE: ADD STEP OUTPUT PRINT
+  if (!quietly)
+    cat(sprintf(
+      "[%s] Exclude raw differences...\n",
+      Sys.time()
+    ))
 
   # read in tanner data
   tanner_ht_vel_rev_path <- ifelse(
@@ -1568,7 +1582,11 @@ cleanbatch_infants <- function(data.df,
 
   # 19: 1 or 2 measurements ----
 
-  # NOTE: ADD STEP OUTPUT PRINT
+  if (!quietly)
+    cat(sprintf(
+      "[%s] Exclude 1 or 2 measurements...\n",
+      Sys.time()
+    ))
 
   # create the valid set
   # we only running carried forwards on valid values, non NNTE values,
@@ -1666,6 +1684,12 @@ cleanbatch_infants <- function(data.df,
   })(copy(.SD)), by = .(subjid, param), .SDcols = colnames(data.df)]
 
   # 21: error load ----
+
+  if (!quietly)
+    cat(sprintf(
+      "[%s] Exclude error load...\n",
+      Sys.time()
+    ))
 
   valid_set <- !data.df$nnte_full
 
