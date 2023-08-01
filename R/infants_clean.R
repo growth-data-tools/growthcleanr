@@ -1115,7 +1115,7 @@ cleanbatch_infants <- function(data.df,
 
   # create the valid set
   # we only running carried forwards on valid values, non NNTE values,
-  # and non single values, and non pair
+  # and non single values, and non weight
   tmp <- table(paste0(data.df$subjid, "_", data.df$param))
   not_single <- paste0(data.df$subjid, "_", data.df$param) %in% names(tmp)[tmp > 1]
   valid_set <- valid(data.df, include.temporary.extraneous = FALSE) &
@@ -1258,6 +1258,357 @@ cleanbatch_infants <- function(data.df,
     return(df$exclude)
   })(copy(.SD)), .SDcols = colnames(data.df)]
 
+  # 17: raw differences ----
+
+  # NOTE: ADD STEP OUTPUT PRINT
+
+  # read in tanner data
+  tanner_ht_vel_rev_path <- ifelse(
+    ref.data.path == "",
+    system.file(file.path("extdata", "tanner_ht_vel.csv.gz"), package = "growthcleanr"),
+    file.path(ref.data.path, "tanner_ht_vel.csv.gz")
+  )
+
+  tanner.ht.vel.rev <- fread(tanner_ht_vel_rev_path)
+
+  setnames(tanner.ht.vel.rev,
+           colnames(tanner.ht.vel.rev),
+           gsub('_', '.', colnames(tanner.ht.vel.rev)))
+  setkey(tanner.ht.vel.rev, sex, tanner.months)
+
+  # read in the who height data
+  who_max_ht_vel_path <- ifelse(
+    ref.data.path == "",
+    system.file(file.path("extdata", "who_ht_maxvel_3sd.csv.gz"), package = "growthcleanr"),
+    file.path(ref.data.path, "who_ht_maxvel_3sd.csv.gz")
+  )
+
+  who_ht_vel_3sd_path <- ifelse(
+    ref.data.path == "",
+    system.file(file.path("extdata", "who_ht_vel_3sd.csv.gz"), package = "growthcleanr"),
+    file.path(ref.data.path, "who_ht_vel_3sd.csv.gz")
+  )
+
+  who.max.ht.vel <- fread(who_max_ht_vel_path)
+  who.ht.vel <- fread(who_ht_vel_3sd_path)
+  setkey(who.max.ht.vel, sex, whoagegrp_ht)
+  setkey(who.ht.vel, sex, whoagegrp_ht)
+  who.ht.vel <- as.data.table(dplyr::full_join(who.ht.vel, who.max.ht.vel, by =
+                                                 c('sex', 'whoagegrp_ht')))
+
+  setnames(who.ht.vel, colnames(who.ht.vel), gsub('_', '.', colnames(who.ht.vel)))
+  setkey(who.ht.vel, sex, whoagegrp.ht)
+
+  # read in who hc data
+  who_max_hc_vel_path <- ifelse(
+    ref.data.path == "",
+    system.file(file.path("extdata", "who_hc_maxvel_3sd_infants.csv.gz"), package = "growthcleanr"),
+    file.path(ref.data.path, "who_hc_maxvel_3sd_infants.csv.gz")
+  )
+
+  who_hc_vel_3sd_path <- ifelse(
+    ref.data.path == "",
+    system.file(file.path("extdata", "who_hc_vel_3sd_infants.csv.gz"), package = "growthcleanr"),
+    file.path(ref.data.path, "who_hc_vel_3sd_infants.csv.gz")
+  )
+
+  who.max.hc.vel <- fread(who_max_hc_vel_path)
+  who.hc.vel <- fread(who_hc_vel_3sd_path)
+  setkey(who.max.hc.vel, sex, whoagegrp_ht)
+  setkey(who.hc.vel, sex, whoagegrp_ht)
+  who.hc.vel <- as.data.table(dplyr::full_join(who.hc.vel, who.max.hc.vel, by =
+                                                 c('sex', 'whoagegrp_ht')))
+
+  setnames(who.hc.vel, colnames(who.hc.vel), gsub('_', '.', colnames(who.hc.vel)))
+  setkey(who.hc.vel, sex, whoagegrp.ht)
+
+  # create the valid set
+  # we only running carried forwards on valid values, non NNTE values,
+  # and non single values, and non weight
+  tmp <- table(paste0(data.df$subjid, "_", data.df$param))
+  not_single <- paste0(data.df$subjid, "_", data.df$param) %in% names(tmp)[tmp > 1]
+  valid_set <- valid(data.df, include.temporary.extraneous = FALSE) &
+    !data.df$nnte_full & # does not use the "other"
+    not_single &
+    data.df$param != "WEIGHTKG" # do not run on weight
+
+  # order just for ease later
+  data.df <- data.df[order(subjid, param, agedays),]
+  data.df <- data.df[valid_set, exclude := (function(df) {
+    # work inside a closure to drop added column values
+
+    # save initial exclusions to keep track
+    ind_all <- copy(df$index)
+    exclude_all <- copy(df$exclude)
+
+    testing <- TRUE
+
+    while (testing & nrow(df) > 1){
+
+      # sort df since it got reordered with keys
+      df <- df[order(agedays),]
+
+      # 17A
+      df[, d_agedays := dplyr::lead(agedays) - agedays]
+
+      # 17E -- only applies to height
+      if (df$param[1] == "HEIGHTCM"){
+        # 17B
+        df[, tanner.months := 6+12*(round(.5*(agedays + dplyr::lead(agedays))/365.25))]
+
+        # 17C
+
+        # merge with the tanner info
+        setkey(df, sex, tanner.months)
+        df <- tanner.ht.vel.rev[df]
+
+        # 17D
+        df[d_agedays < 365.25, mindiff := .5*min.ht.vel*(d_agedays/365.25)-3 ]
+        df[d_agedays > 365.25, mindiff := .5*min.ht.vel-3 ]
+        df[d_agedays < 365.25,
+           maxdiff := 2*min.ht.vel*(d_agedays/365.25)^1.5 + 5.5 ]
+        df[d_agedays > 365.25,
+           maxdiff := 2*min.ht.vel*(d_agedays/365.25)^0.33 + 5.5 ]
+
+        # 17E
+        df[d_agedays >= 20 & d_agedays < 46, whoinc.age.ht := 1]
+        df[d_agedays >= 46 & d_agedays < 76, whoinc.age.ht := 2]
+        df[d_agedays >= 76 & d_agedays < 107, whoinc.age.ht := 3]
+        df[d_agedays >= 107 & d_agedays < 153, whoinc.age.ht := 4]
+        df[d_agedays >= 153 & d_agedays < 199, whoinc.age.ht := 6]
+
+        # update the edge intervals
+        df[d_agedays < 20, d_agedays := 19]
+        df[d_agedays == 19, whoinc.age.ht := 1]
+        df[d_agedays > 199, d_agedays := 200]
+        df[d_agedays == 200, whoinc.age.ht := 6]
+
+        # 17F
+        # merge with WHO
+        # add the column name we want to grab
+        for (i in unique(df$whoinc.age.ht[!is.na(df$whoinc.age.ht)])){
+          cn <- paste0("whoinc.", i, ".ht")
+          df[, who_mindiff_ht :=
+               as.numeric(who.ht.vel[whoagegrp.ht == i & sex == df$sex[1], get(cn)])]
+          cn <- paste0("max.whoinc.", i, ".ht")
+          df[, who_maxdiff_ht :=
+               as.numeric(who.ht.vel[whoagegrp.ht == i & sex == df$sex[1], get(cn)])]
+        }
+        df[, who_mindiff_ht := as.numeric(who_mindiff_ht)]
+        df[, who_mindiff_ht := as.numeric(who_maxdiff_ht)]
+
+        # 17G
+        df[d_agedays < whoinc.age.ht*30.4375, who_mindiff_ht :=
+             who_mindiff_ht * d_agedays/(whoinc.age.ht*30.4375)]
+        df[d_agedays > whoinc.age.ht*30.4375, who_maxdiff_ht :=
+             who_maxdiff_ht * d_agedays/(whoinc.age.ht*30.4375)]
+
+        df[d_agedays < 9*30.4375, who_mindiff_ht := who_mindiff_ht*.5-3]
+        df[d_agedays < 9*30.4375, who_maxdiff_ht := who_maxdiff_ht*2+3]
+
+        # 17H
+        # tanner is implicit
+        # greater than 9 months, use tanner if available, otherwise who
+        df[d_agedays < 9*30.4375 | is.na(min.ht.vel), mindiff := who_mindiff_ht]
+        df[d_agedays < 9*30.4375 | is.na(min.ht.vel), maxdiff := who_maxdiff_ht]
+        # otherwise, fill in
+        df[is.na(mindiff), mindiff := 3]
+
+        # 17I
+        # sort df since it got reordered with keys
+        df <- df[order(agedays),]
+        df[, mindiff_prev := dplyr::lag(mindiff)]
+        df[, maxdiff_prev := dplyr::lag(maxdiff)]
+      } else { # head circumference
+        # 17J
+        df[d_agedays >= 46 & d_agedays < 76, whoinc.age.hc := 2]
+        df[d_agedays >= 76 & d_agedays < 107, whoinc.age.hc := 3]
+        df[d_agedays >= 107 & d_agedays < 153, whoinc.age.hc := 4]
+        df[d_agedays >= 153 & d_agedays < 199, whoinc.age.hc := 6]
+
+        # update the edge intervals
+        df[d_agedays < 46, d_agedays := 45]
+        df[d_agedays == 45, whoinc.age.hc := 2]
+        df[d_agedays > 199, d_agedays := 200]
+        df[d_agedays == 200, whoinc.age.hc := 6]
+
+        # 17K
+        # merge with WHO
+        # add the column name we want to grab
+        for (i in unique(df$whoinc.age.hc[!is.na(df$whoinc.age.hc)])){
+          cn <- paste0("whoinc.", i, ".ht")
+          df[, who_mindiff_hc :=
+               as.numeric(who.hc.vel[whoagegrp.ht == i & sex == df$sex[1], get(cn)])]
+          cn <- paste0("max.whoinc.", i, ".ht")
+          df[, who_maxdiff_hc :=
+               as.numeric(who.hc.vel[whoagegrp.ht == i & sex == df$sex[1], get(cn)])]
+        }
+        df[, who_mindiff_hc := as.numeric(who_mindiff_hc)]
+        df[, who_mindiff_hc := as.numeric(who_maxdiff_hc)]
+
+        # 17L
+        df[d_agedays < whoinc.age.hc*30.4375, who_mindiff_hc :=
+             who_mindiff_hc * d_agedays/(whoinc.age.hc*30.4375)]
+        df[d_agedays > whoinc.age.hc*30.4375, who_maxdiff_hc :=
+             who_maxdiff_hc * d_agedays/(whoinc.age.hc*30.4375)]
+
+        df[d_agedays < 9*30.4375, who_mindiff_hc := who_mindiff_hc*.5-1.5]
+        df[d_agedays < 9*30.4375, who_maxdiff_hc := who_maxdiff_hc*2+1.5]
+
+        # 17H
+        # use who
+        df[, mindiff := who_mindiff_hc]
+        df[, maxdiff := who_maxdiff_hc]
+        # otherwise, fill in
+        df[is.na(mindiff), mindiff := -1.5]
+
+        # 17I
+        # sort df since it got reordered with keys
+        df <- df[order(agedays),]
+        df[, mindiff_prev := dplyr::lag(mindiff)]
+        df[, maxdiff_prev := dplyr::lag(maxdiff)]
+      }
+
+      # 17O: generate ewma
+      df[, (ewma.fields) := as.double(NaN)]
+
+      # first, calculate which exponent we want to put through (pass a different
+      # on for each exp)
+      # subset df to only valid rows
+      tmp <- data.frame(
+        "before" = abs(df$agedays - c(NA, df$agedays[1:(nrow(df)-1)])),
+        "after" = abs(df$agedays - c(df$agedays[2:(nrow(df))], NA))
+      )
+      maxdiff_e <- sapply(1:nrow(tmp), function(x){max(tmp[x,], na.rm = T)})
+      exp_vals <- rep(-1.5, nrow(tmp))
+      exp_vals[maxdiff_e > 365.25] <- -2.5
+      exp_vals[maxdiff_e > 730.5] <- -3.5
+      df[, exp_vals := exp_vals]
+
+      # calculate ewma
+      df[, (ewma.fields) := ewma(agedays, tbc.sd, exp_vals, TRUE)]
+
+      # calculate dewma
+      df[, `:=`(
+        dewma.all = tbc.sd - ewma.all,
+        dewma.before = tbc.sd - ewma.before,
+        dewma.after = tbc.sd - ewma.after
+      )]
+
+      # add differences for convenience
+      df[, diff_prev := (v-dplyr::lag(v))]
+      df[, diff_next := (dplyr::lead(v)-v)]
+
+      if (nrow(df) > 2){
+        # 17P/R: identify pairs and calculate exclusions
+        df[, pair := (v-dplyr::lag(v)) < mindiff_prev |
+             (dplyr::lead(v)-v) < mindiff |
+             (v-dplyr::lag(v)) > maxdiff_prev | (dplyr::lead(v)-v) > maxdiff
+        ]
+        df[is.na(pair), pair := FALSE]
+        df[pair & abs(dewma.before) > dplyr::lag(abs(dewma.after)),
+           bef.g.aftm1 := TRUE]
+        df[pair & abs(dewma.after) > dplyr::lead(abs(dewma.before)),
+           aft.g.aftm1 := TRUE]
+
+        # R
+        df[, val_excl := exclude]
+        df[diff_prev < mindiff_prev & bef.g.aftm1, val_excl := "Exclude-Min-diff"]
+        df[diff_next < mindiff & aft.g.aftm1, val_excl := "Exclude-Min-diff"]
+        df[diff_prev > maxdiff_prev & bef.g.aftm1, val_excl := "Exclude-Max-diff"]
+        df[diff_next > maxdiff & aft.g.aftm1, val_excl := "Exclude-Max-diff"]
+
+
+
+      } else { # only 2 values
+        # 17Q/R -- exclusions for pairs
+        df[, val_excl := exclude]
+        df[diff_prev < mindiff_prev & abs(tbc.sd) > dplyr::lag(abs(tbc.sd)),
+           val_excl := "Exclude-Min-diff"]
+        df[diff_next < mindiff & abs(tbc.sd) > dplyr::lead(abs(tbc.sd)),
+           val_excl := "Exclude-Min-diff"]
+        df[diff_prev > maxdiff_prev & abs(tbc.sd) > dplyr::lag(abs(tbc.sd)),
+           val_excl := "Exclude-Max-diff"]
+        df[diff_next > maxdiff &  abs(tbc.sd) > dplyr::lead(abs(tbc.sd)),
+           val_excl := "Exclude-Max-diff"]
+      }
+
+      # figure out if any of the exclusions hit
+      count_exclude <- sum(df$val_excl != "Include")
+      if (count_exclude > 0){
+        if (nrow(df) > 2){
+          df[, absval := abs(dewma.all)]
+        } else {
+          df[, absval := abs(tbc.sd)]
+        }
+
+        # choose the highest abssum for exclusion
+        idx <- df$index[which.max(df[df$val_excl != "Include",
+                                     absval])]
+
+
+
+        exclude_all[ind_all == idx] <- df[index == idx, val_excl]
+
+        #set up to continue on
+        if (count_exclude > 1){
+          testing <- TRUE
+
+          df <- df[index != idx, ]
+        } else {
+          testing <- FALSE
+        }
+      } else {
+        testing <- FALSE
+      }
+    }
+
+    return(exclude_all)
+  })(copy(.SD)), by = .(subjid, param), .SDcols = colnames(data.df)]
+
+  # 19: 1 or 2 measurements ----
+
+  # NOTE: ADD STEP OUTPUT PRINT
+
+  # create the valid set
+  # we only running carried forwards on valid values, non NNTE values,
+  # and non single values, and non weight
+  tmp <- table(paste0(data.df$subjid, "_", data.df$param))
+  only_single_pairs <- paste0(data.df$subjid, "_", data.df$param) %in% names(tmp)[tmp > 2]
+  valid_set <- valid(data.df, include.temporary.extraneous = FALSE) &
+    !data.df$nnte_full & # does not use the "other"
+    only_single_pairs
+
+  # order just for ease later
+  data.df <- data.df[order(subjid, param, agedays),]
+  data.df <- data.df[valid_set, exclude := (function(df) {
+    # 19A: is it a single or a pair?
+    is_single <- nrow(df) == 1
+
+    # 19B/C: for pairs, calculate info
+    if (!is_single){
+      diff_tbc.sd <- df[2, tbc.sd] - df[1, tbc.sd]
+      diff_tbc.sd <- df[2, tbc.sd] - df[1, tbc.sd]
+      diff_agedays <- df[2, agedays] - df[1, agedays]
+
+      abs_tbd.sd <- abs(df[1, tbc.sd])
+
+      # find the DOP (designated other parameter)
+      dop <-
+        data.df[subjid == df$subjid[1] & param == get_dop(df$param[1]) &
+                  agedays == df$agedays[1],]
+
+      med_dop <-
+        if (nrow(dop) > 0){
+          median(dop$tbc.sd)
+        } else {
+          NA
+        }
+    }
+
+
+    return(df$exclude)
+  })(copy(.SD)), by = .(subjid, param), .SDcols = colnames(df)]
 
   # end ----
 
