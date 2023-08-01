@@ -873,17 +873,9 @@ cleanbatch_infants <- function(data.df,
 
   # calculate plus/minus values
 
-  # STOP HERE: fix the valid
-
-
-
   # order just for ease later
   data.df <- data.df[order(subjid, param, agedays),]
-  data.df <- data.df[valid.rows, exclude := (function(df) {
-    # save initial exclusions to keep track
-    ind_all_df <- copy(df$index)
-    exclude_all_df <- copy(df$exclude)
-
+  data.df <- data.df[valid_set, exclude := (function(df) {
     # 15A: calc plus/minus values
     df[param == "WEIGHTKG", p_plus := 1.05*v]
     df[param == "WEIGHTKG", p_minus := .95*v]
@@ -978,8 +970,6 @@ cleanbatch_infants <- function(data.df,
         }
 
         #15H: all exclusions
-        # for ease, right now -- REMOVE
-        df_sub[, exclude := as.character(df_sub$exclude)]
         df_sub$rowind <- 1:nrow(df_sub)
 
         #a
@@ -1117,6 +1107,153 @@ cleanbatch_infants <- function(data.df,
       }
       return(exclude_all)
     })(copy(.SD)), , by = .(subjid, param), .SDcols = colnames(df)]
+
+    return(df$exclude)
+  })(copy(.SD)), .SDcols = colnames(data.df)]
+
+  # 16: moderate EWMA for birth HT and HC ----
+
+  # create the valid set
+  # we only running carried forwards on valid values, non NNTE values,
+  # and non single values, and non pair
+  tmp <- table(paste0(data.df$subjid, "_", data.df$param))
+  not_single <- paste0(data.df$subjid, "_", data.df$param) %in% names(tmp)[tmp > 1]
+  valid_set <- valid(data.df, include.temporary.extraneous = FALSE) &
+    !data.df$nnte_full & # does not use the "other"
+    not_single &
+    data.df$param != "WEIGHTKG" # do not run on weight
+
+  # work in an a function order to encapsulate and not keep all the additional
+  # columns
+
+  # NOTE: check NNTE na's
+
+  # calculate plus/minus values
+
+  # order just for ease later
+  data.df <- data.df[order(subjid, param, agedays),]
+  data.df <- data.df[valid_set, exclude := (function(df) {
+    # =calc plus/minus values
+    df[param == "HEIGHTCM", p_plus := v+1]
+    df[param == "HEIGHTCM", p_minus := v-1]
+
+    df[param == "HEADCM", p_plus := v+1]
+    df[param == "HEADCM", p_minus := v-1]
+
+    #smooth and recenter
+    df <- calc_and_recenter_z_scores(df, "p_plus", ref.data.path)
+    df <- calc_and_recenter_z_scores(df, "p_minus", ref.data.path)
+
+    #16a: calculate ewma -- run within a subject/parameter
+    # inly evaluate on subject/parameters with a birth ageday
+    df <- df[subjid %in% subjid[agedays == 0],
+      exclude := (function(df_sub) {
+        # save initial exclusions to keep track
+        ind_all <- copy(df_sub$index)
+        exclude_all <- copy(df_sub$exclude)
+
+        testing <- TRUE
+
+        while (testing & nrow(df_sub) > 3){
+          df_sub[, (ewma.fields) := as.double(NaN)]
+
+          # first, calculate which exponent we want to put through (pass a different
+          # on for each exp)
+          # subset df to only valid rows
+
+          tmp <- data.frame(
+            "before" = abs(df_sub$agedays - c(NA, df_sub$agedays[1:(nrow(df_sub)-1)])),
+            "after" = abs(df_sub$agedays - c(df_sub$agedays[2:(nrow(df_sub))], NA))
+          )
+          maxdiff <- sapply(1:nrow(tmp), function(x){max(tmp[x,], na.rm = T)})
+          exp_vals <- rep(-1.5, nrow(tmp))
+          exp_vals[maxdiff > 365.25] <- -2.5
+          exp_vals[maxdiff > 730.5] <- -3.5
+          df_sub[, exp_vals := exp_vals]
+
+          # calculate ewma
+          df_sub[, (ewma.fields) := ewma(agedays, tbc.sd, exp_vals, TRUE)]
+          df_sub[, paste0("c.",ewma.fields) := ewma(agedays, ctbc.sd, exp_vals, TRUE)]
+
+          # calculate dewma
+          df_sub[, `:=`(
+            dewma.all = tbc.sd - ewma.all,
+            dewma.before = tbc.sd - ewma.before,
+            dewma.after = tbc.sd - ewma.after,
+
+            c.dewma.all = ctbc.sd - c.ewma.all
+          )]
+
+          # 16B: calculate prior and next differences
+          df_sub[, tbc_diff_next := tbc.sd - c(tbc.sd[2:nrow(df_sub)], NA)]
+          df_sub[, tbc_diff_prior := tbc.sd - c(NA, tbc.sd[1:(nrow(df_sub)-1)])]
+
+          df_sub[, tbc_diff_plus_next := tbc.p_plus - c(tbc.sd[2:nrow(df_sub)], NA)]
+          df_sub[, tbc_diff_plus_prior :=
+                   tbc.p_plus- c(NA, tbc.sd[1:(nrow(df_sub)-1)])]
+
+          df_sub[, tbc_diff_minus_next := tbc.p_minus - c(tbc.sd[2:nrow(df_sub)], NA)]
+          df_sub[, tbc_diff_minus_prior :=
+                   tbc.p_minus- c(NA, tbc.sd[1:(nrow(df_sub)-1)])]
+
+          # 16C: all exclusion criteria
+          df_sub[,
+                 addcrithigh :=
+                   dewma.before > 1 & dewma.after > 1 &
+                   ((tbc_diff_next > 1 & tbc_diff_plus_next > 1 & tbc_diff_minus_next > 1) | is.na(tbc_diff_next)) &
+                   ((tbc_diff_prior > 1 & tbc_diff_plus_prior > 1 & tbc_diff_minus_prior > 1) | is.na(tbc_diff_prior))
+          ]
+          df_sub[,
+                 addcritlow :=
+                   dewma.before < -1 & dewma.after < -1 &
+                   ((tbc_diff_next < -1 & tbc_diff_plus_next < -1 & tbc_diff_minus_next < -1) | is.na(tbc_diff_next)) &
+                   ((tbc_diff_prior < -1 & tbc_diff_plus_prior < -1 & tbc_diff_minus_prior < -1) | is.na(tbc_diff_prior))
+          ]
+
+          #16D: all exclusions
+          df_sub$rowind <- 1:nrow(df_sub)
+
+          #a
+          df_sub[agedays == 0 & agedays[2] < 365.25 &
+                   dewma.all > 3 & (c.dewma.all > 3 | is.na(c.dewma.all)) &
+                   addcrithigh
+                 , exclude := "Exclude-EWMA2-birth-HT-HC"]
+          df_sub[agedays == 0 & agedays[2] < 365.25 &
+                   dewma.all < -3 & (c.dewma.all < -3 | is.na(c.dewma.all)) &
+                   addcritlow
+                 , exclude := "Exclude-EWMA2-birth-HT-HC"]
+
+          #b
+          df_sub[agedays == 0 & agedays[2] >= 365.25 &
+                   dewma.all > 4 & (c.dewma.all > 4 | is.na(c.dewma.all)) &
+                   addcrithigh
+                 , exclude := "Exclude-EWMA2-birth-HT-HC-ext"]
+          df_sub[agedays == 0 & agedays[2] >= 365.25 &
+                   dewma.all < -4 & (c.dewma.all < -4 | is.na(c.dewma.all)) &
+                   addcritlow
+                 , exclude := "Exclude-EWMA2-birth-HT-HC-ext"]
+
+          # figure out if any of the exclusions hit
+          count_exclude <- sum(df_sub$exclude != "Include")
+          if (count_exclude > 0){
+            df_sub[, abssum := abs(tbc.sd + dewma.all)]
+
+            # choose the highest abssum for exclusion
+            idx <- df_sub$index[which.max(df_sub[df_sub$exclude != "Include",
+                                                 abssum])]
+
+            exclude_all[ind_all == idx] <- df_sub[index == idx, exclude]
+
+            #set up to continue on
+            testing <- TRUE
+
+            df_sub <- df_sub[index != idx, ]
+          } else {
+            testing <- FALSE
+          }
+        }
+        return(exclude_all)
+      })(copy(.SD)), , by = .(subjid, param), .SDcols = colnames(df)]
 
     return(df$exclude)
   })(copy(.SD)), .SDcols = colnames(data.df)]
