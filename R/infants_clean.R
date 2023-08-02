@@ -128,12 +128,14 @@ cleanbatch_infants <- function(data.df,
     # for values with sdes, compare to all values from the prior day
     data.sub[no_sde == FALSE, cf := (function(df){
       ages <- unique(agedays)
-      for (i in 2:length(ages)) {
-        # find the set of measurements from the previous age in days
-        all.prev.v <- df[agedays == ages[i - 1], v.orig]
-        # if a measurement for the current age is found in the set of measurements from the previous age, then mark it as carried forward
-        df[agedays == ages[i] &
-             v.orig %in% all.prev.v, cf := TRUE]
+      if (length(ages) > 1){
+        for (i in 2:length(ages)) {
+          # find the set of measurements from the previous age in days
+          all.prev.v <- df[agedays == ages[i - 1], v.orig]
+          # if a measurement for the current age is found in the set of measurements from the previous age, then mark it as carried forward
+          df[agedays == ages[i] &
+               v.orig %in% all.prev.v, cf := TRUE]
+        }
       }
     })(copy(.SD)), .SDcols = c('agedays', 'cf', 'v.orig'), by = .(subjid, param)]
 
@@ -430,7 +432,10 @@ cleanbatch_infants <- function(data.df,
         exp_vals[maxdiff > 730.5] <- -3.5
         df[valid_set, exp_vals := exp_vals]
 
-        # calculate ewma
+        # calculate ewma -- need to do it in a special way to not include
+        # temp extaneous
+
+        # first calculate ewma for rows without temp extraneous
         df[valid_set, (ewma.fields) := ewma(agedays, tbc.sd, exp_vals, TRUE)]
         df[valid_set, paste0("c.",ewma.fields) := ewma(agedays, ctbc.sd, exp_vals, TRUE)]
 
@@ -491,29 +496,6 @@ cleanbatch_infants <- function(data.df,
                                       decreasing = TRUE))[1]
           df[worst.row, exclude := 'Exclude-EWMA1-Extreme']
         }
-        #
-        #       # 11f.  For subjects/parameters with only 2 values, calculate abstbc*sd=|tbc*sd|
-        #       # g.  Replace exc_*=6 for values that meet all of the following criteria
-        #       #   i.	There are 2 measurements for that subject and parameter
-        #       #   ii.	(dewma_*>3.5 & tbc*sd>3.5) OR (dewma_*<-3.5 & tbc*sd<-3.5)
-        #       #   iii.	If there are 2 measurements for a subject/parameter that meet criteria ii, only replace exc_*=6 for the value with the larger abstbc*sd
-        #       rep <- na_as_false(with(
-        #         df,
-        #         num.valid == 2 &
-        #           (
-        #             tbc.sd - ewma.all > 3.5 &
-        #               tbc.sd > 3.5 |
-        #               tbc.sd - ewma.all < -3.5 & tbc.sd < -3.5
-        #           )
-        #       ))
-        #       num.exclude <- sum(rep)
-        #       if (num.exclude == 1)
-        #         df[rep, exclude := 'Exclude-EWMA-Extreme-Pair']
-        #       if (num.exclude > 1) {
-        #         # first order by decreasing abssum
-        #         worst.row <- with(df, order(rep, abs(tbc.sd), decreasing = TRUE))[1]
-        #         df[worst.row, exclude := 'Exclude-EWMA-Extreme-Pair']
-        #       }
 
         # 11h.  Recalculate temporary extraneous as in step 5
         # optimize: only perform these steps if this subject is known to have extraneous measurements

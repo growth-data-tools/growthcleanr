@@ -325,7 +325,9 @@ cleangrowth <- function(subjid,
       # variables needed for parallel workers
       var_for_par <- c("temporary_extraneous", "valid", "swap_parameters",
                        "na_as_false", "ewma", "read_anthro", "as_matrix_delta",
-                       "sd_median")
+                       "sd_median", "temporary_extraneous_infants",
+                       "get_dop", "calc_oob_evil_twins",
+                       "calc_and_recenter_z_scores")
 
       cl <- makeCluster(num.batches)
       clusterExport(cl = cl, varlist = var_for_par, envir = environment())
@@ -792,9 +794,10 @@ cleangrowth <- function(subjid,
 
     setkey(data.all, subjid, param, agedays)
     data.all[, tbc.sd := sd.orig - sd.median]
-    # separate out corrected and noncorrected values
-    data.all[, ctbc.sd := sd.corr - sd.median]
-
+    if (infants){
+      # separate out corrected and noncorrected values
+      data.all[, ctbc.sd := sd.corr - sd.median]
+    }
 
     if (sdrecentered.filename != "") {
       write.csv(data.all, sdrecentered.filename, row.names = FALSE)
