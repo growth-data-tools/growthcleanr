@@ -23,7 +23,6 @@ cleanbatch_infants <- function(data.df,
                                parallel,
                                measurement.to.z,
                                ewma.fields,
-                               ewma.exp,
                                recover.unit.error,
                                include.carryforward,
                                sd.extreme,
@@ -325,8 +324,8 @@ cleanbatch_infants <- function(data.df,
   # make sure it's ordered by subjid and parameter
   data.df <- data.df[order(subjid, param),]
 
+  # 9A/B/C
   # first, find out of any re possible evil twins in the first place
-  # NOTE: GO BACK HERE
   start_df <- calc_oob_evil_twins(data.df[valid_set,])
 
   if (any(start_df$oob)) {
@@ -351,6 +350,7 @@ cleanbatch_infants <- function(data.df,
       # while there are multiple oob, we want to remove
       while (any_oob){
 
+        # 9D
         # now calculate the maximum difference from the median tbc.sd
         upd.df[, `:=` (sd_med = median(tbc.sd, na.rm = T)), by =.(subjid, param)]
         upd.df[, `:=` (med_diff = abs(tbc.sd - sd_med)), by =.(subjid, param)]
@@ -362,6 +362,7 @@ cleanbatch_infants <- function(data.df,
 
         df[upd.df[exclude == exc_nam,], exclude := i.exclude, on = .(line)]
 
+        #9E
         # reupdate valid (to recalculate OOB -- others are not included)
         upd.df <- calc_oob_evil_twins(df[valid(df),])
         upd.df[, `:=` (sum_oob = sum(oob, na.rm = T)), by =.(subjid, param)]
@@ -375,8 +376,7 @@ cleanbatch_infants <- function(data.df,
 
   }
 
-
-  # 9d.  Replace exc_*=0 if exc_*==2 & redo step 5 (temporary extraneous)
+  # 9F.  redo temp extraneous
   data.df[exclude == 'Exclude-Temporary-Extraneous-Same-Day', exclude := 'Include']
   data.df[temporary_extraneous_infants(data.df), exclude := 'Exclude-Temporary-Extraneous-Same-Day']
 

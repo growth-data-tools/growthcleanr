@@ -57,13 +57,6 @@
 #' @param sdrecentered.filename Name of file to save re-centered data to as CSV. Defaults to "", for which this
 #' data will not be saved. Useful for post-processing and debugging.
 #' @param include.carryforward Determines whether Carry-Forward values are kept in the output. Defaults to False.
-#' @param ewma.exp Exponent to use for weighting measurements in the
-#' exponentially weighted moving average calculations. Defaults to -1.5.
-#' This exponent should be negative in order to weight growth measurements
-#' closer to the measurement being evaluated more strongly. Exponents that are
-#' further from zero (e.g. -3) will increase the relative influence of
-#' measurements close in time to the measurement being evaluated compared to
-#' using the default exponent.
 #' @param ref.data.path Path to reference data. If not supplied, the year 2000
 #' Centers for Disease Control (CDC) reference data will be used.
 #' @param log.path Path to log file output when running in parallel (non-quiet mode). Default is NA. A new
@@ -148,7 +141,6 @@ cleangrowth <- function(subjid,
                         sdmedian.filename = "",
                         sdrecentered.filename = "",
                         include.carryforward = FALSE,
-                        ewma.exp = -1.5,
                         ref.data.path = "",
                         log.path = NA,
                         parallel = FALSE,
@@ -911,7 +903,6 @@ cleangrowth <- function(subjid,
           parallel = parallel,
           measurement.to.z = measurement.to.z,
           ewma.fields = ewma.fields,
-          ewma.exp = ewma.exp,
           recover.unit.error = recover.unit.error,
           include.carryforward = include.carryforward,
           sd.extreme = sd.extreme,
@@ -966,7 +957,6 @@ cleangrowth <- function(subjid,
           parallel = parallel,
           measurement.to.z = measurement.to.z,
           ewma.fields = ewma.fields,
-          ewma.exp = ewma.exp,
           recover.unit.error = recover.unit.error,
           include.carryforward = include.carryforward,
           sd.extreme = sd.extreme,
