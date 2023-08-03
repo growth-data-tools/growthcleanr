@@ -915,7 +915,8 @@ cleangrowth <- function(subjid,
           who.ht.vel = who.ht.vel,
           lt3.exclude.mode = lt3.exclude.mode,
           error.load.threshold = error.load.threshold,
-          error.load.mincount = error.load.mincount)
+          error.load.mincount = error.load.mincount,
+          ref.data.path = ref.data.path)
       }
     } else {
       # create log directory if necessary
@@ -969,7 +970,8 @@ cleangrowth <- function(subjid,
           who.ht.vel = who.ht.vel,
           lt3.exclude.mode = lt3.exclude.mode,
           error.load.threshold = error.load.threshold,
-          error.load.mincount = error.load.mincount
+          error.load.mincount = error.load.mincount,
+          ref.data.path = ref.data.path
         )
       }
       stopCluster(cl)

@@ -32,7 +32,8 @@ cleanbatch_infants <- function(data.df,
                                who.ht.vel,
                                lt3.exclude.mode,
                                error.load.threshold,
-                               error.load.mincount) {
+                               error.load.mincount,
+                               ref.data.path) {
   # avoid "no visible binding" warnings
   abs.2ndlast.sd <- abs.tbc.sd <- abs.tbc.sd.next <- abs.tbc.sd.prev <- abssum2 <- NULL
   aft.g.befp1 <- agedays <- agedays.other <- bef.g.aftm1 <- delta <- NULL
