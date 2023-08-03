@@ -157,8 +157,6 @@ calc_and_recenter_z_scores <- function(df, cn, ref.data.path){
                                       infants = T)
 
   # calculate "standard deviation" scores
-  if (!quietly)
-    cat(sprintf("[%s] Calculating SD-scores...\n", Sys.time()))
   df[, cn.orig_cdc := measurement.to.z(param, agedays, sex, get(cn), TRUE)]
   df[, cn.orig_who := measurement.to.z_who(param, agedays, sex, get(cn), TRUE)]
 
