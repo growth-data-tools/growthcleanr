@@ -1383,6 +1383,8 @@ cleanbatch_infants <- function(data.df,
         # 17F
         # merge with WHO
         # add the column name we want to grab
+        df[, who_mindiff_ht := NA]
+        df[, who_mindiff_ht := NA]
         for (i in unique(df$whoinc.age.ht[!is.na(df$whoinc.age.ht)])){
           cn <- paste0("whoinc.", i, ".ht")
           df[, who_mindiff_ht :=
@@ -1432,6 +1434,8 @@ cleanbatch_infants <- function(data.df,
         # 17K
         # merge with WHO
         # add the column name we want to grab
+        df[, who_mindiff_hc := NA]
+        df[, who_mindiff_hc := NA]
         for (i in unique(df$whoinc.age.hc[!is.na(df$whoinc.age.hc)])){
           cn <- paste0("whoinc.", i, ".ht")
           df[, who_mindiff_hc :=
