@@ -1352,7 +1352,6 @@ cleanbatch_infants <- function(data.df,
     testing <- TRUE
 
     while (testing & nrow(df) > 1){
-
       # sort df since it got reordered with keys
       df <- df[order(agedays),]
 
@@ -1394,8 +1393,6 @@ cleanbatch_infants <- function(data.df,
         # 17F
         # merge with WHO
         # add the column name we want to grab
-        df[, who_mindiff_ht := NA]
-        df[, who_maxdiff_ht := NA]
         for (i in unique(df$whoinc.age.ht[!is.na(df$whoinc.age.ht)])){
           cn <- paste0("whoinc.", i, ".ht")
           df[, who_mindiff_ht :=
@@ -1403,6 +1400,11 @@ cleanbatch_infants <- function(data.df,
           cn <- paste0("max.whoinc.", i, ".ht")
           df[, who_maxdiff_ht :=
                as.numeric(who.ht.vel[whoagegrp.ht == i & sex == df$sex[1], get(cn)])]
+        }
+        # if there are none, preallocate for ease
+        if (length(unique(df$whoinc.age.ht[!is.na(df$whoinc.age.ht)])) < 1){
+          df[, who_mindiff_ht := NA_real_]
+          df[, who_maxdiff_ht := NA_real_]
         }
         df[, who_mindiff_ht := as.numeric(who_mindiff_ht)]
         df[, who_mindiff_ht := as.numeric(who_maxdiff_ht)]
@@ -1436,11 +1438,12 @@ cleanbatch_infants <- function(data.df,
         df[d_agedays >= 107 & d_agedays < 153, whoinc.age.hc := 4]
         df[d_agedays >= 153 & d_agedays < 199, whoinc.age.hc := 6]
 
+        # update the edge intervals to missing
+        df[d_agedays < 46 | d_agedays > 199, whoinc.age.hc := NA]
+
         # 17K
         # merge with WHO
         # add the column name we want to grab
-        df[, who_mindiff_hc := NA]
-        df[, who_maxdiff_hc := NA]
         for (i in unique(df$whoinc.age.hc[!is.na(df$whoinc.age.hc)])){
           cn <- paste0("whoinc.", i, ".ht")
           df[, who_mindiff_hc :=
@@ -1448,6 +1451,11 @@ cleanbatch_infants <- function(data.df,
           cn <- paste0("max.whoinc.", i, ".ht")
           df[, who_maxdiff_hc :=
                as.numeric(who.hc.vel[whoagegrp.ht == i & sex == df$sex[1], get(cn)])]
+        }
+        # if there are none, preallocate for ease
+        if (length(unique(df$whoinc.age.hc[!is.na(df$whoinc.age.hc)])) < 1){
+          df[, who_mindiff_hc := NA_real_]
+          df[, who_maxdiff_hc := NA_real_]
         }
         df[, who_mindiff_hc := as.numeric(who_mindiff_hc)]
         df[, who_mindiff_hc := as.numeric(who_maxdiff_hc)]
