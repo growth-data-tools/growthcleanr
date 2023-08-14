@@ -1700,7 +1700,7 @@ cleanbatch_infants <- function(data.df,
                              ))/.N,
           by = c("subjid", "param")]
 
-  data.df[valid_set & err_ratio > .4,
+  data.df[valid_set & err_ratio > .4 & exclude == "Include",
           exclude := "Exclude-Error-load"]
 
 
