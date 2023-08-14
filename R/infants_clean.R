@@ -1651,7 +1651,7 @@ cleanbatch_infants <- function(data.df,
       if (diff_tbc.sd > 4 & (diff_ctbc.sd > 4 | is.na(diff_ctbc.sd)) &
           diff_agedays >=365.25){
         df[max_ind, exclude := "Exclude-2-meas->1-year"]
-      } else if (diff_tbc.sd > 2.5 & (diff_ctbc.sd > 4 | is.na(diff_ctbc.sd)) &
+      } else if (diff_tbc.sd > 2.5 & (diff_ctbc.sd > 2.5 | is.na(diff_ctbc.sd)) &
                  diff_agedays < 365.25){
         df[max_ind, exclude := "Exclude-2-meas-<1-year"]
       }
