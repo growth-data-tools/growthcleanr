@@ -437,24 +437,35 @@ cleanbatch_infants <- function(data.df,
         # temp extaneous
 
         # first calculate ewma for rows without temp extraneous
-        df[valid_set, (ewma.fields) := ewma(agedays, tbc.sd, exp_vals, TRUE)]
-        df[valid_set, paste0("c.",ewma.fields) := ewma(agedays, ctbc.sd, exp_vals, TRUE)]
+        no_tmp_extr <- valid(df, include.temporary.extraneous = FALSE)
 
-        # note: at this point, only one ewma exists per param on a given day for a subject, so sort(ewma.all)[1] will returns the non-missing ewma.all
-        # restrict to children with possible extraneous for efficiency
+        df[valid_set & no_tmp_extr, (ewma.fields) := ewma(agedays, tbc.sd, exp_vals, TRUE)]
+        df[valid_set & no_tmp_extr, paste0("c.",ewma.fields) := ewma(agedays, ctbc.sd, exp_vals, TRUE)]
+
+        # now go through the temp extraneous and do the ewmas just for those
+        # rows
+        if (sum(df$exclude == "Exclude-Temporary-Extraneous-Same-Day") > 0){
+          # go through each temp extraneous
+          for (j in
+               which(df$exclude == "Exclude-Temporary-Extraneous-Same-Day")){
+            # subset to only the temp extraneous and valid values
+            df_sub <- df[valid_set & (no_tmp_extr | (1:nrow(df) == j)),]
+
+            # run ewma on those values
+            df_sub[, (ewma.fields) := ewma(agedays, tbc.sd, exp_vals, TRUE)]
+            df_sub[, paste0("c.",ewma.fields) := ewma(agedays, ctbc.sd, exp_vals, TRUE)]
+
+            # merge the value back in
+            col_replace <- c(ewma.fields, paste0("c.",ewma.fields))
+            df_val <-
+              df_sub[df_sub$exclude == "Exclude-Temporary-Extraneous-Same-Day",
+                     ..col_replace]
+            df[j, (col_replace) := df_val]
+          }
+
+        }
 
         # include the corrected
-        if (has.extraneous) {
-          df[, `:=`(
-            ewma.all = sort(ewma.all)[1],
-            ewma.before = sort(ewma.before)[1],
-            ewma.after = sort(ewma.after)[1],
-
-            c.ewma.all = sort(c.ewma.all)[1],
-            c.ewma.before = sort(c.ewma.before)[1],
-            c.ewma.after = sort(c.ewma.after)[1]
-          ), by = .(agedays)]
-        }
         df[, `:=`(
           dewma.all = tbc.sd - ewma.all,
           dewma.before = tbc.sd - ewma.before,
