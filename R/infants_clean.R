@@ -1436,12 +1436,6 @@ cleanbatch_infants <- function(data.df,
         df[d_agedays >= 107 & d_agedays < 153, whoinc.age.hc := 4]
         df[d_agedays >= 153 & d_agedays < 199, whoinc.age.hc := 6]
 
-        # update the edge intervals
-        df[d_agedays < 46, d_agedays := 45]
-        df[d_agedays == 45, whoinc.age.hc := 2]
-        df[d_agedays > 199, d_agedays := 200]
-        df[d_agedays == 200, whoinc.age.hc := 6]
-
         # 17K
         # merge with WHO
         # add the column name we want to grab
@@ -1557,8 +1551,6 @@ cleanbatch_infants <- function(data.df,
         # choose the highest abssum for exclusion
         idx <- df$index[which.max(df[df$val_excl != "Include",
                                      absval])]
-
-
 
         exclude_all[ind_all == idx] <- df[index == idx, val_excl]
 
