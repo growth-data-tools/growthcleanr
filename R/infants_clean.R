@@ -513,7 +513,7 @@ cleanbatch_infants <- function(data.df,
         # optimize: only perform these steps if this subject is known to have extraneous measurements
         if (has.extraneous) {
           df[exclude == 'Exclude-Temporary-Extraneous-Same-Day', exclude := 'Include']
-          df[temporary_extraneous(df), exclude := 'Exclude-Temporary-Extraneous-Same-Day']
+          df[temporary_extraneous_infants(df), exclude := 'Exclude-Temporary-Extraneous-Same-Day']
         }
 
         # 11i.  If there was at least one subject who had a potential exclusion identified in step 11c, repeat steps 11b-11g. If there were no subjects with potential
@@ -844,6 +844,11 @@ cleanbatch_infants <- function(data.df,
       }
     }
 
+    # replace all the "exclude temp extraneous" with includes -- other SDEs
+    # were removed
+    exclude_all[exclude_all == "Exclude-Temporary-Extraneous-Same-Day"] <-
+      "Include"
+
     return(exclude_all)
   })(copy(.SD)), by = .(subjid, param), .SDcols = colnames(data.df)]
 
@@ -1103,6 +1108,7 @@ cleanbatch_infants <- function(data.df,
           testing <- FALSE
         }
       }
+
       return(exclude_all)
     })(copy(.SD)), , by = .(subjid, param), .SDcols = colnames(df)]
 
