@@ -220,6 +220,7 @@ cleangrowth <- function(subjid,
     'Swapped-Measurements',
     'Exclude',
     'Missing',
+    'Not cleaned',
     'Exclude-Temporary-Extraneous-Same-Day',
     'Exclude-Carried-Forward',
     # added CF exclusions
@@ -680,6 +681,8 @@ cleangrowth <- function(subjid,
     )),
     levels = exclude.levels,
     ordered = TRUE)]
+    # also mark certain measurements to not consider
+    data.all[param == "HEADCM" & agedays > (3*365.25), exclude := "Not cleaned"]
 
     # define field names needed by helper functions
     ewma.fields <- c('ewma.all', 'ewma.before', 'ewma.after')
