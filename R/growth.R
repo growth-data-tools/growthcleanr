@@ -710,9 +710,9 @@ cleangrowth <- function(subjid,
         infants_reference_medians_path <- ifelse(
           ref.data.path == "",
           system.file(file.path("extdata",
-                                "chop-rcfile-2023-02-03.csv_format.csv.gz"),
+                                "rcfile-2023-08-15_format.csv.gz"),
                       package = "growthcleanr"),
-          file.path(ref.data.path, "chop-rcfile-2023-02-03.csv_format.csv.gz")
+          file.path(ref.data.path, "rcfile-2023-08-15_format.csv.gz")
         )
         sd.recenter <- fread(infants_reference_medians_path)
         if (!quietly)
@@ -777,20 +777,11 @@ cleangrowth <- function(subjid,
     }
 
     # ensure recentering medians are sorted correctly
-    if (!infants){
-      setkey(sd.recenter, param, sex, agedays)
+    setkey(sd.recenter, param, sex, agedays)
 
-      # add sd.recenter to data, and recenter
-      setkey(data.all, param, sex, agedays)
-      data.all <- sd.recenter[data.all]
-    } else {
-      # infant recenter doesn't have sex
-      setkey(sd.recenter, param, agedays)
-
-      # add sd.recenter to data, and recenter
-      setkey(data.all, param, agedays)
-      data.all <- sd.recenter[data.all]
-    }
+    # add sd.recenter to data, and recenter
+    setkey(data.all, param, sex, agedays)
+    data.all <- sd.recenter[data.all]
 
     setkey(data.all, subjid, param, agedays)
     data.all[, tbc.sd := sd.orig - sd.median]
