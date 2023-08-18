@@ -1368,20 +1368,35 @@ cleanbatch_infants <- function(data.df,
       if (df$param[1] == "HEIGHTCM"){
         # 17B
         df[, tanner.months := 6+12*(round(.5*(agedays + dplyr::lead(agedays))/365.25))]
-
-        # 17C
+        # set tanner to missing for smaller values
+        df[(agedays/30.4375) < 30, tanner.months := NA]
 
         # merge with the tanner info
         setkey(df, sex, tanner.months)
         df <- tanner.ht.vel.rev[df]
 
-        # 17D
+        # 17C
+
+        # a
+        df[max.ht.vel < 2.54, max.ht.vel := 2.54]
+        df[d_agedays > 2*30.4375 & max.ht.vel < 2*2.54, max.ht.vel := 2*2.54]
+        df[d_agedays > .5*365.25 & max.ht.vel < 4*2.54, max.ht.vel := 4*2.54]
+        df[d_agedays > 365.25 & max.ht.vel < 8*2.54, max.ht.vel := 8*2.54]
+
+        # b
         df[d_agedays < 365.25, mindiff := .5*min.ht.vel*(d_agedays/365.25)-3 ]
         df[d_agedays > 365.25, mindiff := .5*min.ht.vel-3 ]
         df[d_agedays < 365.25,
            maxdiff := 2*min.ht.vel*(d_agedays/365.25)^1.5 + 5.5 ]
         df[d_agedays > 365.25,
            maxdiff := 2*min.ht.vel*(d_agedays/365.25)^0.33 + 5.5 ]
+
+        # 17D
+        # generate the who age group variable
+        df[, whoagegrp.ht := round(agedays/30.4375)]
+        df[whoagegrp.ht > 24 | dplyr::lead(whoagegrp.ht) > 24,
+           whoagegrp.ht := NA]
+
 
         # 17E
         df[d_agedays >= 20 & d_agedays < 46, whoinc.age.ht := 1]
@@ -1431,6 +1446,9 @@ cleanbatch_infants <- function(data.df,
         df[d_agedays < 9*30.4375 | is.na(min.ht.vel), maxdiff := who_maxdiff_ht]
         # otherwise, fill in
         df[is.na(mindiff), mindiff := 3]
+        # for birth measurements, add allowance of 1.5cm
+        df[agedays == 0, mindiff := mindiff - 1.5]
+        df[agedays == 0, maxdiff := maxdiff + 1.5]
 
         # 17I
         # sort df since it got reordered with keys
@@ -1438,6 +1456,12 @@ cleanbatch_infants <- function(data.df,
         df[, mindiff_prev := dplyr::lag(mindiff)]
         df[, maxdiff_prev := dplyr::lag(maxdiff)]
       } else { # head circumference
+        # 17D
+        # generate the who age group variable
+        df[, whoagegrp.ht := round(agedays/30.4375)]
+        df[whoagegrp.ht > 24 | dplyr::lead(whoagegrp.ht) > 24,
+           whoagegrp.ht := NA]
+
         # 17J
         df[d_agedays >= 46 & d_agedays < 76, whoinc.age.hc := 2]
         df[d_agedays >= 76 & d_agedays < 107, whoinc.age.hc := 3]
@@ -1475,14 +1499,17 @@ cleanbatch_infants <- function(data.df,
         df[d_agedays < 9*30.4375, who_mindiff_hc := who_mindiff_hc*.5-1.5]
         df[d_agedays < 9*30.4375, who_maxdiff_hc := who_maxdiff_hc*2+1.5]
 
-        # 17H
+        # 17M
         # use who
         df[, mindiff := who_mindiff_hc]
         df[, maxdiff := who_maxdiff_hc]
         # otherwise, fill in
         df[is.na(mindiff), mindiff := -1.5]
+        # for birth measurements, add allowance of .5cm
+        df[agedays == 0, mindiff := mindiff - .5]
+        df[agedays == 0, maxdiff := maxdiff + .5]
 
-        # 17I
+        # 17N
         # sort df since it got reordered with keys
         df <- df[order(agedays),]
         df[, mindiff_prev := dplyr::lag(mindiff)]
@@ -1531,7 +1558,7 @@ cleanbatch_infants <- function(data.df,
         df[pair & abs(dewma.after) > dplyr::lead(abs(dewma.before)),
            aft.g.aftm1 := TRUE]
 
-        # R
+        # Q
         df[, val_excl := exclude]
         df[diff_prev < mindiff_prev & bef.g.aftm1, val_excl := "Exclude-Min-diff"]
         df[diff_next < mindiff & aft.g.aftm1, val_excl := "Exclude-Min-diff"]
