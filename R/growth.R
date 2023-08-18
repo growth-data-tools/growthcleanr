@@ -526,7 +526,6 @@ cleangrowth <- function(subjid,
       # add age in months
       data.all[, agemonths := agedays/30.4375]
 
-      # TO ADD: REMOVE ADDED COLUMNS FROM DATA ALL
       potcorr <- data.all$param == "WEIGHTKG" &
         data.all$sd.orig < -2 &
         data.all$agemonths < 10
@@ -581,7 +580,7 @@ cleangrowth <- function(subjid,
       data.all[param == "HEIGHTCM" & agedays > 730 & cagedays <= 730,
                ccdc_cv := ccdc_cv + 0.7]
 
-      # create the corrected z scores -- STOP HERE
+      # create the corrected z scores
       # use read anthro, but pass in different arguments
       # pass in the corrected height
       data.all[, sd.c_cdc :=
@@ -821,7 +820,7 @@ cleangrowth <- function(subjid,
     # safety check: treat observations where tbc.sd cannot be calculated as missing
     data.all[is.na(tbc.sd), exclude := 'Missing']
 
-    # 4: identify subset that don't need to be cleaned ----
+    # 4: identify subset that don't need to be cleaned (nnte) ----
 
     # identify those meeting all subjects meeting these criteria as "no need
     # to ewma"
@@ -842,18 +841,23 @@ cleangrowth <- function(subjid,
         by = c("subjid", "param")]
     data.all[, no_outliers := no_outliers == 1]
     # all max - min tbd.sc < 2.5
-    data.all[, no_bigdiff := abs(max(tbc.sd) - min(tbc.sd)) < 2.5 | is.na(tbc.sd),
+    data.all[, no_bigdiff :=
+               rep((abs(max(tbc.sd, na.rm = T) - min(tbc.sd, na.rm = T)) < 2.5),
+                   .N),
         by = c("subjid", "param")]
     # the previous value can't be too far from the current value
     data.all[, seq_win := sequence(.N), by = c("subjid", "param")]
-    data.all[, nottoofar := abs(tbc.sd - dplyr::lag(tbc.sd)) < 1 | seq_win == 1,
+    data.all[, nottoofar :=
+               (abs(tbc.sd - dplyr::lag(tbc.sd)) < 1 | seq_win == 1) &
+               (abs(tbc.sd - dplyr::lead(tbc.sd)) < 1 | seq_win == .N),
         by = c("subjid", "param")]
     data.all[is.na(nottoofar),  nottoofar :=  TRUE]
 
     # cumulative: no need to ewma -- needs to work for all within a subject &
     # parameter
     data.all[, nnte := no_sde & no_dup_val & no_outliers & no_bigdiff & nottoofar]
-    # NOTE: to come back -- how not to calculate with parameter
+    # NNTE can be calculated by parameter -- but it's occasionally easier for
+    # calculations to require all parameters to be nnte
     data.all[, nnte_full := sum(nnte) == .N, by = c("subjid", "param")]
     data.all[, nnte := sum(nnte) == .N, by = c("subjid")]
 
