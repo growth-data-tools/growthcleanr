@@ -1685,7 +1685,7 @@ cleanbatch_infants <- function(data.df,
       max_ind <- if (!all(is.na(df$comp_diff))){
         which.max(df$comp_diff)
       } else {
-        which.max(df$tbc.sd)
+        which.max(abs(df$tbc.sd))
       }
 
       # 19F/G: which exclusion
