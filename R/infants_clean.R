@@ -225,7 +225,7 @@ cleanbatch_infants <- function(data.df,
     ))
 
   # add age in years
-  data.df[, ageyears := agedays *365.25]
+  data.df[, ageyears := agedays/365.25]
 
   # calculate the valid step
   valid_set <- valid(data.df, include.temporary.extraneous = TRUE) &

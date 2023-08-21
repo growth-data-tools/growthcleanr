@@ -152,9 +152,9 @@ calc_oob_evil_twins <- function(df){
 calc_and_recenter_z_scores <- function(df, cn, ref.data.path){
   # for infants, use z and who
   measurement.to.z <- read_anthro(ref.data.path, cdc.only = TRUE,
-                                  infants = T)
+                                  infants = TRUE)
   measurement.to.z_who <- read_anthro(ref.data.path, cdc.only = FALSE,
-                                      infants = T)
+                                      infants = TRUE)
 
   # calculate "standard deviation" scores
   df[, cn.orig_cdc := measurement.to.z(param, agedays, sex, get(cn), TRUE)]
