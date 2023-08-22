@@ -456,14 +456,12 @@ cleangrowth <- function(subjid,
     if(infants){
       if (!quietly)
         cat(sprintf("[%s] Calculating z-scores...\n", Sys.time()))
+      # removing z calculations, as they are not used
       # for infants, use z and who
       measurement.to.z <- read_anthro(ref.data.path, cdc.only = TRUE,
                                       infants = T)
       measurement.to.z_who <- read_anthro(ref.data.path, cdc.only = FALSE,
                                           infants = T)
-
-      data.all[, z.orig_cdc := measurement.to.z(param, agedays, sex, v)]
-      data.all[, z.orig_who := measurement.to.z_who(param, agedays, sex, v)]
 
       # calculate "standard deviation" scores
       if (!quietly)
@@ -473,39 +471,35 @@ cleangrowth <- function(subjid,
 
       # smooth z-scores/SD scores between ages 1 - 3yo using weighted scores
       # older uses cdc, younger uses who
-      who_weight <- 4 - (data.all$agedays/365.25)
-      cdc_weight <- (data.all$agedays/365.25) - 2
+      data.all$ageyears <- data.all$agedays/365.25
 
-      smooth_val <- data.all$agedays/365.25 >= 2 &
-        data.all$agedays/365.25 <= 4 &
+      who_weight <- 4 - (data.all$ageyears)
+      cdc_weight <- (data.all$ageyears) - 2
+
+      smooth_val <- data.all$ageyears >= 2 &
+        data.all$ageyears <= 4 &
         data.all$param != "HEADCM"
       data.all[smooth_val,
-               z.orig := (z.orig_cdc[smooth_val]*cdc_weight[smooth_val] +
-                            z.orig_who[smooth_val]*who_weight[smooth_val])/2]
-      data.all[smooth_val,
-               sd.orig := (sd.orig_cdc[smooth_val]*cdc_weight[smooth_val] +
-                             sd.orig_who[smooth_val]*who_weight[smooth_val])/2]
+               sd.orig := (data.all$sd.orig_cdc[smooth_val]*cdc_weight[smooth_val] +
+                             data.all$sd.orig_who[smooth_val]*who_weight[smooth_val])/2]
 
       # otherwise use WHO and CDC for older and younger, respectively
       who_val <- data.all$param == "HEADCM" |
-        data.all$agedays/365.25 < 2
-      data.all[who_val | (smooth_val & is.na(data.all$z.orig_cdc)),
-               z.orig := data.all$z.orig_who[who_val | (smooth_val & is.na(data.all$z.orig_cdc))]]
-      data.all[who_val | (smooth_val & is.na(data.all$sd.orig_cdc)),
-               sd.orig := data.all$sd.orig_who[who_val  | (smooth_val & is.na(data.all$sd.orig_cdc))]]
+        data.all$ageyears < 2
 
-      cdc_val <- data.all$param != "HEADCM" |
-        data.all$agedays/365.25 > 4
-      data.all[cdc_val  | (smooth_val & is.na(data.all$z.orig_who)),
-               z.orig := data.all$z.orig_cdc[cdc_val | (smooth_val & is.na(data.all$z.orig_who))]]
-      data.all[cdc_val | (smooth_val & is.na(data.all$sd.orig_who)),
-               sd.orig := data.all$sd.orig_cdc[cdc_val | (smooth_val & is.na(data.all$sd.orig_who))]]
+      data.all[(who_val & !smooth_val) | (smooth_val & is.na(data.all$sd.orig_cdc)),
+               sd.orig := data.all$sd.orig_who[(who_val & !smooth_val)  | (smooth_val & is.na(data.all$sd.orig_cdc))]]
+
+      cdc_val <- data.all$param != "HEADCM" &
+        data.all$ageyears > 4
+
+      data.all[(cdc_val & !smooth_val) | (smooth_val & is.na(data.all$sd.orig_who)),
+               sd.orig := data.all$sd.orig_cdc[(cdc_val & !smooth_val) | (smooth_val & is.na(data.all$sd.orig_who))]]
 
       # NOTE: SD SCORES IN CODE ARE Z IN INFANT DOCS -- USE sd.orig ONLY
 
       # keep the original, uncorrected, unrecentered zscores
       data.all[,sd.orig_uncorr := sd.orig]
-      data.all[,z.orig_uncorr := z.orig]
 
       # NOTE: MAY WANT TO SUBSET HERE
 

@@ -280,7 +280,7 @@ cleanbatch_infants <- function(data.df,
   # identify z cutoff
   # ***Note, using unrecentered values***
   #  *For weight only do after birth
-  data.df[valid_set & param == "WEIGHTKG" & sd.orig_uncorr < - 25 &
+  data.df[valid_set & param == "WEIGHTKG" & sd.orig_uncorr < -25 &
             ageyears < 1,
           exclude := exc_nam]
   data.df[valid_set & param == "WEIGHTKG" & sd.orig_uncorr < -15 &
@@ -290,7 +290,7 @@ cleanbatch_infants <- function(data.df,
           exclude := exc_nam]
 
   # *Max z-score for height based on analysis of CHOP data because 15/25 too loose for upper limits
-  data.df[valid_set & param == "HEIGHTCM" & sd.orig_uncorr < - 25 &
+  data.df[valid_set & param == "HEIGHTCM" & sd.orig_uncorr < -25 &
             ageyears < 1,
           exclude := exc_nam]
   data.df[valid_set & param == "HEIGHTCM" & sd.orig_uncorr < -15 &
@@ -298,6 +298,9 @@ cleanbatch_infants <- function(data.df,
           exclude := exc_nam]
   data.df[valid_set & param == "HEIGHTCM" & sd.orig_uncorr > 8,
           exclude := exc_nam]
+
+  print("Standard BIV")
+  print(data.df[param == "HEIGHTCM",c(ageyears, param, sd.orig_uncorr)])
 
   # head circumference
   data.df[valid_set & param == "HEADCM" & sd.orig_uncorr < -15,
