@@ -313,7 +313,7 @@ cleanbatch_infants <- function(data.df,
   # evil twins ----
   # Evil Twins: An important weakness in the original pediatric growthcleanr algorithm was that it often failed to identify two or more implausible measurements that occurred next to each other, even if they were extremely deviant from a child’s other measurements. This step is now added to identify these multiple extreme values, although it also identifies some single values.
 
-  exc_nam <- "Exclude-Evil-Twin"
+  exc_nam <- "Exclude-Evil-Twins"
 
   # create the valid set
   # we only running carried forwards on valid values, non NNTE values,

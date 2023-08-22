@@ -276,7 +276,7 @@ cleangrowth <- function(subjid,
     #new
     "Exclude-Absolute-BIV",
     "Exclude-Standardized-BIV",
-    "Exclude-Evil-Twin",
+    "Exclude-Evil-Twins",
     "Exclude-EWMA1-Extreme"
   )
 
