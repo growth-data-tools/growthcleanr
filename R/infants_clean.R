@@ -1406,29 +1406,34 @@ cleanbatch_infants <- function(data.df,
         df[d_agedays >= 153 & d_agedays < 199, whoinc.age.ht := 6]
 
         # update the edge intervals
-        df[d_agedays < 20, d_agedays := 19]
-        df[d_agedays == 19, whoinc.age.ht := 1]
+        df[d_agedays < 20, whoinc.age.ht := 1]
         df[d_agedays > 199, d_agedays := 200]
         df[d_agedays == 200, whoinc.age.ht := 6]
 
         # 17F
         # merge with WHO
         # add the column name we want to grab
-        for (i in unique(df$whoinc.age.ht[!is.na(df$whoinc.age.ht)])){
+        m_who_ht_vel <- merge(df, who.ht.vel, by = c("sex", "whoagegrp.ht"),
+                               all.x = TRUE, sort = FALSE)
+        for (i in unique(df$whoinc.age.ht[!is.na(df$whoinc.age.ht) &
+                                          !is.na(df$whoagegrp.ht)])){
+          sub_m_who_ht_vel <- m_who_ht_vel[whoinc.age.ht == i,]
+
           cn <- paste0("whoinc.", i, ".ht")
-          df[, who_mindiff_ht :=
-               as.numeric(who.ht.vel[whoagegrp.ht == i & sex == df$sex[1], get(cn)])]
+          df[whoinc.age.ht == i,
+             who_mindiff_ht := as.numeric(sub_m_who_ht_vel[, get(cn)])]
           cn <- paste0("max.whoinc.", i, ".ht")
-          df[, who_maxdiff_ht :=
-               as.numeric(who.ht.vel[whoagegrp.ht == i & sex == df$sex[1], get(cn)])]
+          df[whoinc.age.ht == i,
+             who_maxdiff_ht := as.numeric(sub_m_who_ht_vel[, get(cn)])]
         }
         # if there are none, preallocate for ease
-        if (length(unique(df$whoinc.age.ht[!is.na(df$whoinc.age.ht)])) < 1){
+        if (length(unique(df$whoinc.age.ht[!is.na(df$whoinc.age.ht) &
+                                           !is.na(df$whoagegrp.ht)])) < 1){
           df[, who_mindiff_ht := NA_real_]
           df[, who_maxdiff_ht := NA_real_]
         }
         df[, who_mindiff_ht := as.numeric(who_mindiff_ht)]
-        df[, who_mindiff_ht := as.numeric(who_maxdiff_ht)]
+        df[, who_maxdiff_ht := as.numeric(who_maxdiff_ht)]
 
         # 17G
         df[d_agedays < whoinc.age.ht*30.4375, who_mindiff_ht :=
@@ -1442,8 +1447,10 @@ cleanbatch_infants <- function(data.df,
         # 17H
         # tanner is implicit
         # greater than 9 months, use tanner if available, otherwise who
-        df[d_agedays < 9*30.4375 | is.na(min.ht.vel), mindiff := who_mindiff_ht]
-        df[d_agedays < 9*30.4375 | is.na(min.ht.vel), maxdiff := who_maxdiff_ht]
+        df[(d_agedays < 9*30.4375 | is.na(min.ht.vel)) &
+             !is.na(who_mindiff_ht), mindiff := who_mindiff_ht]
+        df[(d_agedays < 9*30.4375 | is.na(min.ht.vel)) &
+             !is.na(who_mindiff_ht), maxdiff := who_maxdiff_ht]
         # otherwise, fill in
         df[is.na(mindiff), mindiff := 3]
         # for birth measurements, add allowance of 1.5cm
@@ -1474,21 +1481,28 @@ cleanbatch_infants <- function(data.df,
         # 17K
         # merge with WHO
         # add the column name we want to grab
-        for (i in unique(df$whoinc.age.hc[!is.na(df$whoinc.age.hc)])){
+
+        m_who_hc_vel <- merge(df, who.hc.vel, by = c("sex", "whoagegrp.ht"),
+                              all.x = TRUE, sort = FALSE)
+        for (i in unique(df$whoinc.age.hc[!is.na(df$whoinc.age.hc) &
+                                          !is.na(df$whoagegrp.hc)])){
+          sub_m_who_hc_vel <- m_who_hc_vel[whoinc.age.ht == i,]
+
           cn <- paste0("whoinc.", i, ".ht")
-          df[, who_mindiff_hc :=
-               as.numeric(who.hc.vel[whoagegrp.ht == i & sex == df$sex[1], get(cn)])]
+          df[whoinc.age.hc == i,
+             who_mindiff_hc := as.numeric(sub_m_who_ht_vel[, get(cn)])]
           cn <- paste0("max.whoinc.", i, ".ht")
-          df[, who_maxdiff_hc :=
-               as.numeric(who.hc.vel[whoagegrp.ht == i & sex == df$sex[1], get(cn)])]
+          df[whoinc.age.hc == i,
+             who_maxdiff_hc := as.numeric(sub_m_who_ht_vel[, get(cn)])]
         }
         # if there are none, preallocate for ease
-        if (length(unique(df$whoinc.age.hc[!is.na(df$whoinc.age.hc)])) < 1){
+        if (length(unique(df$whoinc.age.hc[!is.na(df$whoinc.age.hc) &
+                                           !is.na(df$whoagegrp.hc)])) < 1){
           df[, who_mindiff_hc := NA_real_]
           df[, who_maxdiff_hc := NA_real_]
         }
         df[, who_mindiff_hc := as.numeric(who_mindiff_hc)]
-        df[, who_mindiff_hc := as.numeric(who_maxdiff_hc)]
+        df[, who_maxdiff_hc := as.numeric(who_maxdiff_hc)]
 
         # 17L
         df[d_agedays < whoinc.age.hc*30.4375, who_mindiff_hc :=
