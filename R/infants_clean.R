@@ -372,7 +372,6 @@ cleanbatch_infants <- function(data.df,
         upd.df[, `:=` (sum_oob = sum(oob, na.rm = T)), by =.(subjid, param)]
 
         any_oob <- any(upd.df$sum_oob >= 2)
-        print(max(upd.df$sum_oob))
 
       }
 
@@ -1107,8 +1106,6 @@ cleanbatch_infants <- function(data.df,
         } else {
           testing <- FALSE
         }
-        print(testing)
-        print(exclude_all)
       }
 
       return(exclude_all)
