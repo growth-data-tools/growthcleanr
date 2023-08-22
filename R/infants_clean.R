@@ -338,11 +338,8 @@ cleanbatch_infants <- function(data.df,
         Sys.time()
       ))
 
-    # remove the valid set from the beginning
-    df <- copy(data.df[valid_set,])
-
     # start to evaluate and remove evil twins
-    data.df[, exclude := (function(df) {
+    data.df[valid_set, exclude := (function(df) {
       # where we are updating results
       upd.df <- copy(df)
       upd.df <- calc_oob_evil_twins(upd.df)
@@ -871,8 +868,6 @@ cleanbatch_infants <- function(data.df,
 
   # work in an a function order to encapsulate and not keep all the additional
   # columns
-
-  # FUTURE UPDATE: I think I have to make sure I replace the temp-extraneous codes with includes after the first time, they're alone now
 
   # calculate plus/minus values
 
