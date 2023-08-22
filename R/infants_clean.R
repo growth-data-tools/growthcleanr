@@ -346,7 +346,7 @@ cleanbatch_infants <- function(data.df,
       # count the amount of oobs for each subject/param and distribute it out
       upd.df[, `:=` (sum_oob = sum(oob, na.rm = T)), by =.(subjid, param)]
 
-      any_oob <- any(upd.df$sum_oob > 2)
+      any_oob <- any(upd.df$sum_oob >= 2)
       # while there are multiple oob, we want to remove
       while (any_oob){
 
@@ -367,7 +367,8 @@ cleanbatch_infants <- function(data.df,
         upd.df <- calc_oob_evil_twins(df[valid(df),])
         upd.df[, `:=` (sum_oob = sum(oob, na.rm = T)), by =.(subjid, param)]
 
-        any_oob <- any(upd.df$sum_oob > 2)
+        any_oob <- any(upd.df$sum_oob >= 2)
+        print(max(upd.df$sum_oob))
 
       }
 
@@ -1102,6 +1103,8 @@ cleanbatch_infants <- function(data.df,
         } else {
           testing <- FALSE
         }
+        print(testing)
+        print(exclude_all)
       }
 
       return(exclude_all)
