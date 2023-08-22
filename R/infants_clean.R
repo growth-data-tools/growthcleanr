@@ -299,9 +299,6 @@ cleanbatch_infants <- function(data.df,
   data.df[valid_set & param == "HEIGHTCM" & sd.orig_uncorr > 8,
           exclude := exc_nam]
 
-  print("Standard BIV")
-  print(data.df[param == "HEIGHTCM",c(ageyears, param, sd.orig_uncorr)])
-
   # head circumference
   data.df[valid_set & param == "HEADCM" & sd.orig_uncorr < -15,
           exclude := exc_nam]
@@ -893,7 +890,7 @@ cleanbatch_infants <- function(data.df,
 
     #15c: exclude agedays = 0 for ht, hc
     #15d: calculate ewma -- run within a subject/parameter
-    df <- df[(param != "HEIGHTCM" | param != "HEADCM") & agedays != 0,
+    df[(param != "HEIGHTCM" | param != "HEADCM") & agedays != 0,
              exclude := (function(df_sub) {
       # save initial exclusions to keep track
       ind_all <- copy(df_sub$index)
@@ -901,7 +898,7 @@ cleanbatch_infants <- function(data.df,
 
       testing <- TRUE
 
-      while (testing & nrow(df_sub) > 3){
+      while (testing & nrow(df_sub) >= 3){
         df_sub[, (ewma.fields) := as.double(NaN)]
 
         # first, calculate which exponent we want to put through (pass a different
@@ -1162,7 +1159,7 @@ cleanbatch_infants <- function(data.df,
 
         testing <- TRUE
 
-        while (testing & nrow(df_sub) > 3){
+        while (testing & nrow(df_sub) >= 3){
           df_sub[, (ewma.fields) := as.double(NaN)]
 
           # first, calculate which exponent we want to put through (pass a different
