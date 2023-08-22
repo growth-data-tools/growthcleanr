@@ -992,31 +992,31 @@ cleanbatch_infants <- function(data.df,
         df_sub[agedays == 0 & agedays[2] >= 365.25 &
                  dewma.all > 4 & (c.dewma.all > 4 | is.na(c.dewma.all)) &
                  addcrithigh
-               , exclude := "Exclude-EWMA-2-birth-WT-ext"]
+               , exclude := "Exclude-EWMA2-birth-WT-ext"]
         df_sub[agedays == 0 & agedays[2] >= 365.25 &
                  dewma.all < -4 & (c.dewma.all < -4 | is.na(c.dewma.all)) &
                  addcritlow
-               , exclude := "Exclude-EWMA-2-birth-WT-ext"]
+               , exclude := "Exclude-EWMA2-birth-WT-ext"]
 
         #d
         df_sub[rowind == 1 & agedays[1] != 0 & agedays[2]-agedays[1] < 365.25 &
                  dewma.all > 2 & (c.dewma.all > 2 | is.na(c.dewma.all)) &
                  addcrithigh
-               , exclude := "Exclude-EWMA-2-first"]
+               , exclude := "Exclude-EWMA2-first"]
         df_sub[rowind == 1 & agedays[1] != 0 & agedays[2]-agedays[1] < 365.25 &
                  dewma.all < -2 & (c.dewma.all < -2 | is.na(c.dewma.all)) &
                  addcritlow
-               , exclude := "Exclude-EWMA-2-first"]
+               , exclude := "Exclude-EWMA2-first"]
 
         # e
         df_sub[rowind == 1 & agedays[1] != 0 & agedays[2]-agedays[1] >= 365.25 &
                  dewma.all > 3 & (c.dewma.all > 3 | is.na(c.dewma.all)) &
                  addcrithigh
-               , exclude := "Exclude-EWMA-2-first-ext"]
+               , exclude := "Exclude-EWMA2-first-ext"]
         df_sub[rowind == 1 & agedays[1] != 0 & agedays[2]-agedays[1] >= 365.25 &
                  dewma.all < -3 & (c.dewma.all < -3 | is.na(c.dewma.all)) &
                  addcritlow
-               , exclude := "Exclude-EWMA-2-first-ext"]
+               , exclude := "Exclude-EWMA2-first-ext"]
 
         # f
         df_sub[rowind == nrow(df_sub) &
