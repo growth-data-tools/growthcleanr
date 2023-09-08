@@ -57,6 +57,13 @@
 #' @param sdrecentered.filename Name of file to save re-centered data to as CSV. Defaults to "", for which this
 #' data will not be saved. Useful for post-processing and debugging.
 #' @param include.carryforward Determines whether Carry-Forward values are kept in the output. Defaults to False.
+#' @param ewma.exp Exponent to use for weighting measurements in the
+#' exponentially weighted moving average calculations. Defaults to -1.5.
+#' This exponent should be negative in order to weight growth measurements
+#' closer to the measurement being evaluated more strongly. Exponents that are
+#' further from zero (e.g. -3) will increase the relative influence of
+#' measurements close in time to the measurement being evaluated compared to
+#' using the default exponent.
 #' @param ref.data.path Path to reference data. If not supplied, the year 2000
 #' Centers for Disease Control (CDC) reference data will be used.
 #' @param log.path Path to log file output when running in parallel (non-quiet mode). Default is NA. A new
@@ -141,6 +148,7 @@ cleangrowth <- function(subjid,
                         sdmedian.filename = "",
                         sdrecentered.filename = "",
                         include.carryforward = FALSE,
+                        ewma.exp = -1.5,
                         ref.data.path = "",
                         log.path = NA,
                         parallel = FALSE,
@@ -212,73 +220,107 @@ cleangrowth <- function(subjid,
 
   # constants for pediatric
   # enumerate the different exclusion levels
-  exclude.levels.peds <- c(
-    'Include',
-    'Unit-Error-High',
-    'Unit-Error-Low',
-    'Unit-Error-Possible',
-    'Swapped-Measurements',
-    'Exclude',
-    'Missing',
-    'Not cleaned',
-    'Exclude-Temporary-Extraneous-Same-Day',
-    'Exclude-Carried-Forward',
-    # added CF exclusions
-    "Exclude-1-CF-deltaZ-<0.05",
-    "Exclude-1-CF-deltaZ-<0.1-wholehalfimp",
-    "Exclude-Teen-2-plus-CF-deltaZ-<0.05",
-    "Exclude-Teen-2-plus-CF-deltaZ-<0.1-wholehalfimp",
-    'Exclude-EWMA-Extreme',
-    'Exclude-EWMA-Extreme-Pair',
-    'Exclude-SDE-Identical',
-    'Exclude-SDE-All-Exclude',
-    'Exclude-SDE-All-Extreme',
-    'Exclude-SDE-EWMA',
-    'Exclude-SDE-One-Day',
-    "Exclude-EWMA2-middle",
-    "Exclude-EWMA2-birth-WT",
-    "Exclude-EWMA2-birth-WT-ext",
-    "Exclude-EWMA2-first",
-    "Exclude-EWMA2-first-ext",
-    "Exclude-EWMA2-last",
-    "Exclude-EWMA2-last-high",
-    "Exclude-EWMA2-last-ext",
-    "Exclude-EWMA2-last-ext-high",
-    "Exclude-EWMA2-birth-HT-HC",
-    "Exclude-EWMA2-birth-HT-HC-ext",
-    "Exclude-Min-diff",
-    "Exclude-Max-diff",
-    "Exclude-2-meas->1-year",
-    "Exclude-2-meas-<1-year",
-    "Exclude-1-meas",
-    "Exclude-Error-load",
+  if (infants){
+    # different for infants
+    exclude.levels.peds <- c(
+      'Include',
+      'Unit-Error-High',
+      'Unit-Error-Low',
+      'Unit-Error-Possible',
+      'Swapped-Measurements',
+      'Exclude',
+      'Missing',
+      'Not cleaned',
+      'Exclude-Temporary-Extraneous-Same-Day',
+      'Exclude-Carried-Forward',
+      # added CF exclusions
+      "Exclude-1-CF-deltaZ-<0.05",
+      "Exclude-1-CF-deltaZ-<0.1-wholehalfimp",
+      "Exclude-Teen-2-plus-CF-deltaZ-<0.05",
+      "Exclude-Teen-2-plus-CF-deltaZ-<0.1-wholehalfimp",
+      'Exclude-EWMA-Extreme',
+      'Exclude-EWMA-Extreme-Pair',
+      'Exclude-SDE-Identical',
+      'Exclude-SDE-All-Exclude',
+      'Exclude-SDE-All-Extreme',
+      'Exclude-SDE-EWMA',
+      'Exclude-SDE-One-Day',
+      "Exclude-EWMA2-middle",
+      "Exclude-EWMA2-birth-WT",
+      "Exclude-EWMA2-birth-WT-ext",
+      "Exclude-EWMA2-first",
+      "Exclude-EWMA2-first-ext",
+      "Exclude-EWMA2-last",
+      "Exclude-EWMA2-last-high",
+      "Exclude-EWMA2-last-ext",
+      "Exclude-EWMA2-last-ext-high",
+      "Exclude-EWMA2-birth-HT-HC",
+      "Exclude-EWMA2-birth-HT-HC-ext",
+      "Exclude-Min-diff",
+      "Exclude-Max-diff",
+      "Exclude-2-meas->1-year",
+      "Exclude-2-meas-<1-year",
+      "Exclude-1-meas",
+      "Exclude-Error-load",
 
-    # old
+      # old
 
-    'Exclude-Extraneous-Same-Day',
-    'Exclude-SD-Cutoff',
-    'Exclude-EWMA-8',
-    'Exclude-EWMA-9',
-    'Exclude-EWMA-10',
-    'Exclude-EWMA-11',
-    'Exclude-EWMA-12',
-    'Exclude-EWMA-13',
-    'Exclude-EWMA-14',
-    'Exclude-Min-Height-Change',
-    'Exclude-Max-Height-Change',
-    'Exclude-Pair-Delta-17',
-    'Exclude-Pair-Delta-18',
-    'Exclude-Pair-Delta-19',
-    'Exclude-Single-Outlier',
-    'Exclude-Too-Many-Errors',
-    'Exclude-Too-Many-Errors-Other-Parameter',
+      'Exclude-Extraneous-Same-Day',
+      'Exclude-SD-Cutoff',
+      'Exclude-EWMA-8',
+      'Exclude-EWMA-9',
+      'Exclude-EWMA-10',
+      'Exclude-EWMA-11',
+      'Exclude-EWMA-12',
+      'Exclude-EWMA-13',
+      'Exclude-EWMA-14',
+      'Exclude-Min-Height-Change',
+      'Exclude-Max-Height-Change',
+      'Exclude-Pair-Delta-17',
+      'Exclude-Pair-Delta-18',
+      'Exclude-Pair-Delta-19',
+      'Exclude-Single-Outlier',
+      'Exclude-Too-Many-Errors',
+      'Exclude-Too-Many-Errors-Other-Parameter',
 
-    #new
-    "Exclude-Absolute-BIV",
-    "Exclude-Standardized-BIV",
-    "Exclude-Evil-Twins",
-    "Exclude-EWMA1-Extreme"
-  )
+      #new
+      "Exclude-Absolute-BIV",
+      "Exclude-Standardized-BIV",
+      "Exclude-Evil-Twins",
+      "Exclude-EWMA1-Extreme"
+    )
+  } else {
+    exclude.levels.peds <- c(
+      'Include',
+      'Unit-Error-High',
+      'Unit-Error-Low',
+      'Unit-Error-Possible',
+      'Swapped-Measurements',
+      'Exclude',
+      'Missing',
+      'Exclude-Temporary-Extraneous-Same-Day',
+      'Exclude-Carried-Forward',
+      'Exclude-SD-Cutoff',
+      'Exclude-EWMA-Extreme',
+      'Exclude-EWMA-Extreme-Pair',
+      'Exclude-Extraneous-Same-Day',
+      'Exclude-EWMA-8',
+      'Exclude-EWMA-9',
+      'Exclude-EWMA-10',
+      'Exclude-EWMA-11',
+      'Exclude-EWMA-12',
+      'Exclude-EWMA-13',
+      'Exclude-EWMA-14',
+      'Exclude-Min-Height-Change',
+      'Exclude-Max-Height-Change',
+      'Exclude-Pair-Delta-17',
+      'Exclude-Pair-Delta-18',
+      'Exclude-Pair-Delta-19',
+      'Exclude-Single-Outlier',
+      'Exclude-Too-Many-Errors',
+      'Exclude-Too-Many-Errors-Other-Parameter'
+    )
+  }
 
   exclude.levels.adult <- c(
     "Include",
@@ -323,12 +365,20 @@ cleangrowth <- function(subjid,
       if (is.na(num.batches)) {
         num.batches <- getDoParWorkers()
       }
-      # variables needed for parallel workers
-      var_for_par <- c("temporary_extraneous", "valid", "swap_parameters",
-                       "na_as_false", "ewma", "read_anthro", "as_matrix_delta",
-                       "sd_median", "temporary_extraneous_infants",
-                       "get_dop", "calc_oob_evil_twins",
-                       "calc_and_recenter_z_scores")
+      if (infants){
+        # variables needed for parallel workers
+        var_for_par <- c("temporary_extraneous", "valid", "swap_parameters",
+                         "na_as_false", "ewma", "read_anthro", "as_matrix_delta",
+                         "sd_median",
+
+                         "temporary_extraneous_infants",
+                         "get_dop", "calc_oob_evil_twins",
+                         "calc_and_recenter_z_scores")
+      } else {
+        var_for_par <- c("temporary_extraneous", "valid", "swap_parameters",
+                         "na_as_false", "ewma", "read_anthro", "as_matrix_delta",
+                         "sd_median")
+      }
 
       cl <- makeCluster(num.batches)
       clusterExport(cl = cl, varlist = var_for_par, envir = environment())
@@ -1095,7 +1145,7 @@ cleangrowth <- function(subjid,
 #'
 #' @param path Path to supplied reference anthro data. Defaults to package anthro tables.
 #' @param cdc.only Whether or not only CDC data should be used. Defaults to false.
-#' @param infants boolean on if beta infants version is being used. will be merged in to main algorithm.
+#' @param infants TRUE/FALSE. Run the beta-release of the infants algorithm (expands pediatric algorithm to clean 0 - 2). Defaults to FALSE.
 #'
 #' @return Function for calculating BMI based on measurement, age in days, sex, and measurement value.
 #' @export

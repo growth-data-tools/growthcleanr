@@ -4,6 +4,8 @@
 
 # function that takes in a parameter name and returns the designated other
 # parameter (DOP)
+#' @keywords internal
+#' @noRd
 get_dop <- function(param_name){
   dop <- if (param_name == "WEIGHTKG"){
     "HEIGHTCM"
@@ -149,6 +151,8 @@ calc_oob_evil_twins <- function(df){
 #
 # returns df with additional column, tbc.(cn), which is the recentered z-score
 # for the input
+#' @keywords internal
+#' @noRd
 calc_and_recenter_z_scores <- function(df, cn, ref.data.path){
   # for infants, use z and who
   measurement.to.z <- read_anthro(ref.data.path, cdc.only = TRUE,
