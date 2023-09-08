@@ -15,7 +15,7 @@
 #'
 #' @keywords internal
 #' @import data.table
-#' @importFrom stats median
+#' @importFrom stats median embed
 #' @noRd
 cleanbatch_infants <- function(data.df,
                                log.path,
@@ -57,6 +57,22 @@ cleanbatch_infants <- function(data.df,
   whoinc.6.ht <- whoinc.age.ht <- z.orig <- NULL
 
   oob <- sd_med <- med_diff <- max_diff <- sum_oob <- i.exclude <- NULL
+
+
+  # avoid no visible warning errors
+  sum_sde <- no_sde <- cf <- wholehalfimp <- seq_win <- cs <- absdiff <-
+    sd.orig_uncorr <- seq_win <- absdiff <- wholehalfimp <- ageyears <- ctbc.sd <-
+    ..col_replace <- c.ewma.all <- pot_excl <- c.dewma.all <- p_plus <-
+    p_minus <- ctbc.sd <- c.ewma.all <- tbc_diff_next <- tbc_diff_prior <-
+    tbc_diff_plus_next <- tbc.p_plus <- tbc_diff_plus_prior <-
+    tbc_diff_minus_next <- tbc.p_minus <- tbc_diff_minus_prior <- addcrithigh <-
+    addcritlow <- tbc_dop <- i.tbc.sd <- rowind <- abssum <- c.dewma.all <-
+    whoagegrp_ht <- d_agedays <- mindiff <- maxdiff <- who_mindiff_ht <-
+    who_maxdiff_ht <- mindiff_prev <- maxdiff_prev <- whoinc.age.hc <-
+    who_maxdiff_hc <- who_mindiff_hc <- diff_prev <-
+    diff_next <- aft.g.aftm1 <- val_excl <-
+    absval <- comp_diff <- err_ratio <-
+    NULL
 
   data.df <- data.table(data.df, key = c('subjid', 'param', 'agedays', 'index'))
 

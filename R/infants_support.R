@@ -154,6 +154,10 @@ calc_oob_evil_twins <- function(df){
 #' @keywords internal
 #' @noRd
 calc_and_recenter_z_scores <- function(df, cn, ref.data.path){
+  # avoid no visible warning errors
+  cn.orig_cdc <- param <- agedays <- sex <- cn.orig_who <- cn.orig <- subjid <-
+    tbc.cn <- sd.median <- NULL
+
   # for infants, use z and who
   measurement.to.z <- read_anthro(ref.data.path, cdc.only = TRUE,
                                   infants = TRUE)

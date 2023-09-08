@@ -11,7 +11,7 @@ read_anthro(path = "", cdc.only = FALSE, infants = FALSE)
 
 \item{cdc.only}{Whether or not only CDC data should be used. Defaults to false.}
 
-\item{infants}{boolean on if beta infants version is being used. will be merged in to main algorithm.}
+\item{infants}{TRUE/FALSE. Run the beta-release of the infants algorithm (expands pediatric algorithm to clean 0 - 2). Defaults to FALSE.}
 }
 \value{
 Function for calculating BMI based on measurement, age in days, sex, and measurement value.

@@ -165,6 +165,13 @@ cleangrowth <- function(subjid,
   z.orig_cdc <- z.orig_who <- sd.orig_cdc <- sd.orig_who <- NULL
   result <- NULL
 
+  sd.orig_uncorr <- agemonths <- intwt <- fengadays <- pmagedays <- cagedays <-
+    unmod_zscore <- fen_wt_m <- fen_wt_l <- fen_wt_s <- cwho_cv <- ccdc_cv <-
+    sd.c_cdc <- sd.c_who <- sd.c <- sd.corr <- seq_win <- sd.corr_abssumdiff <-
+    sd.orig_abssumdiff <- ..orig_colnames <- ctbc.sd <- sum_sde <- no_sde <-
+    sum_val <- no_dup_val <- no_outliers <- no_bigdiff <- nottoofar <- nnte <-
+    nnte_full <- NULL
+
   # preprocessing ----
 
   # organize data into a dataframe along with a line "index" so the original data order can be recovered
