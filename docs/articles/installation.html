@@ -33,7 +33,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">growthcleanr</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">2.1.1</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">2.2.0</span>
       </span>
     </div>
 
@@ -82,6 +82,9 @@
     <li>
       <a href="../articles/developer-guidelines.html">Developer guidelines</a>
     </li>
+    <li>
+      <a href="../articles/prelim-infants-algorithm.html">Preliminary infants algorithm</a>
+    </li>
   </ul>
 </li>
 <li>
@@ -113,7 +116,7 @@
     <div class="page-header toc-ignore">
       <h1 data-toc-skip>Installation</h1>
             
-            <h4 data-toc-skip class="date">2023-03-13</h4>
+            <h4 data-toc-skip class="date">2023-09-13</h4>
       
       <small class="dont-index">Source: <a href="https://github.com/carriedaymont/growthcleanr/blob/main/vignettes/installation.Rmd" class="external-link"><code>vignettes/installation.Rmd</code></a></small>
       <div class="hidden name"><code>installation.Rmd</code></div>
@@ -184,8 +187,8 @@ installs in a manner that will be able to take advantage of multiple
 threads. You will know it worked successfully if, when you load the
 <code>data.table</code> library in R, you see something like the
 following:</p>
-<div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(data.table)</span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>data.table <span class="dv">1</span>.<span class="fl">12.2</span> using <span class="dv">2</span> <span class="fu">threads</span> (see ?getDTthreads).  Latest news<span class="sc">:</span> r<span class="sc">-</span>datatable.com</span></code></pre></div>
+<div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a><span class="fu">library</span>(data.table)</span>
+<span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a>data.table <span class="dv">1</span>.<span class="fl">12.2</span> using <span class="dv">2</span> <span class="fu">threads</span> (see ?getDTthreads).  Latest news<span class="sc">:</span> r<span class="sc">-</span>datatable.com</span></code></pre></div>
 <p>That data.table reports “using 2 threads” indicates that installation
 has succeeded. If the message reports using only one thread, see the
 advice under the <a href="https://github.com/Rdatatable/data.table/wiki/Installation#openmp-enabled-compiler-for-mac" class="external-link">“OpenMP
@@ -208,7 +211,7 @@ manually.</p>
 <p>To install and run <code>growthcleanr</code> using Docker, open the
 PowerShell on Windows, or open the Terminal on macOS, and enter this
 <code>docker</code> command:</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">-it</span> ghcr.io/mitre/growthcleanr/gcr-image:latest R</span></code></pre></div>
+<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">-it</span> ghcr.io/mitre/growthcleanr/gcr-image:latest R</span></code></pre></div>
 <p>The image tag <code>latest</code> in the example above will refer to
 the latest version of the package available on the main branch of the <a href="https://github.com/mitre/growthcleanr" class="external-link">mitre/growthcleanr</a>
 repository, which is typically in close sync with the upstream <a href="https://github.com/carriedaymont/growthcleanr" class="external-link">carriedaymont/growthcleanr</a>
@@ -216,7 +219,7 @@ repository. This will usually be the latest released version of
 <code>growthcleanr</code>. To explicitly choose a release by name,
 replace <code>latest</code> with the release tag, e.g. for the released
 package <code>v2.1.0</code>:</p>
-<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">-it</span> ghcr.io/mitre/growthcleanr/gcr-image:v2.1.0 R</span></code></pre></div>
+<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">-it</span> ghcr.io/mitre/growthcleanr/gcr-image:v2.1.0 R</span></code></pre></div>
 <p>Whichever package you use, the first time this command is run, it
 might take a few minutes to download and extract several necessary
 components, but this should be fully automated. If successful, you
@@ -228,8 +231,8 @@ a local folder on your computer into the Docker environment to work with
 your own data. For example, if you are on Windows, and your data is in
 <code>C:\Users\exampleuser\analysis</code>, specify a mapping using the
 added <code>-v</code> step below:</p>
-<div class="sourceCode" id="cb7"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">-it</span> <span class="at">-v</span> C:\Users\exampleusers\analysis:/usr/src/app <span class="dt">\</span></span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>    ghcr.io/mitre/growthcleanr/gcr-image:latest R</span></code></pre></div>
+<div class="sourceCode" id="cb7"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">-it</span> <span class="at">-v</span> C:\Users\exampleusers\analysis:/usr/src/app <span class="dt">\</span></span>
+<span id="cb7-2"><a href="#cb7-2" tabindex="-1"></a>    ghcr.io/mitre/growthcleanr/gcr-image:latest R</span></code></pre></div>
 <p>Note that the slashes in file paths reverse direction from the
 reference to the folder location on your Windows machine (before the
 colon) to the folder location on the Docker container (after the colon);
@@ -242,8 +245,8 @@ proceed.</p>
 <p>If you are on macOS, and your data is in
 <code>/Users/exampleuser/analysis</code>, specify a folder mapping like
 this:</p>
-<div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">-it</span> <span class="at">-v</span> /Users/exampleuser/analysis:/usr/src/app <span class="dt">\</span></span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>    ghcr.io/mitre/growthcleanr/gcr-image:latest R</span></code></pre></div>
+<div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">-it</span> <span class="at">-v</span> /Users/exampleuser/analysis:/usr/src/app <span class="dt">\</span></span>
+<span id="cb8-2"><a href="#cb8-2" tabindex="-1"></a>    ghcr.io/mitre/growthcleanr/gcr-image:latest R</span></code></pre></div>
 <p>If you mapped a folder, then inside the Docker environment’s R
 prompt, when you then issue a command like <code><a href="https://rdrr.io/r/base/list.files.html" class="external-link">list.files()</a></code>,
 you should see a list of the same files in the R session that you see in
@@ -283,7 +286,7 @@ function is available in the <code>remotes</code> package:</p>
 <p>If you are developing the <code>growthcleanr</code> code itself, you
 can download or clone the <code>growthcleanr</code> source code and then
 install it from source. To clone the source using <code>git</code>:</p>
-<div class="sourceCode" id="cb11"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/carriedaymont/growthcleanr.git</span></code></pre></div>
+<div class="sourceCode" id="cb11"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/carriedaymont/growthcleanr.git</span></code></pre></div>
 <p>Once you have the <code>growthcleanr</code> package source, open an R
 session from the <code>growthcleanr</code> base directory. Then install
 growthcleanr using the R <code>devtools</code> package:</p>

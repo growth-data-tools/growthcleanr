@@ -1,4 +1,4 @@
-pandoc: 2.19.2
+pandoc: 3.1.1
 pkgdown: 2.0.7
 pkgdown_sha: ~
 articles:
@@ -9,8 +9,9 @@ articles:
   large-data-sets: large-data-sets.html
   next-steps: next-steps.html
   output: output.html
+  prelim-infants-algorithm: prelim-infants-algorithm.html
   quickstart: quickstart.html
   usage: usage.html
   utilities: utilities.html
-last_built: 2023-03-13T17:25Z
+last_built: 2023-09-13T14:53Z
 
