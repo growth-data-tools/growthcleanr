@@ -30,7 +30,7 @@ cleangrowth(
   adult_cutpoint = 20,
   weight_cap = Inf,
   adult_columns_filename = "",
-  infants = FALSE
+  prelim_infants = FALSE
 )
 }
 \arguments{
@@ -139,7 +139,7 @@ to Inf. Defaults to Inf.}
 as CSV. Defaults to "", for which this data will not be saved. Useful
 for post-analysis. For more information on this output, please see README.}
 
-\item{infants}{TRUE/FALSE. Run the beta-release of the infants algorithm (expands pediatric algorithm to clean 0 - 2). Defaults to FALSE.}
+\item{prelim_infants}{TRUE/FALSE. Run the in-development release of the infants algorithm (expands pediatric algorithm to improve performance for children 0 – 2 years). Not recommended for use in research. For more information regarding the logic of the algorithm, see the vignette 'Preliminary Infants Algorithm.' Defaults to FALSE.}
 }
 \value{
 Vector of exclusion codes for each of the input measurements.
