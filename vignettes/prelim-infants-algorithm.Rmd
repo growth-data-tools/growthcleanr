@@ -32,7 +32,7 @@ cleaned_data <-
                                    prelim_infants = TRUE)]
 ```
  
-For information on the steps in the infants algorithm, please see [PDF].
+For information on the steps in the infants algorithm, please see [this document](https://github.com/carriedaymont/growthcleanr/blob/main/vignettes/Infant-Algorithm-Documentation-2023-08-22-0833.pdf).
  
 This algorithm expansion also contains information on smoothing z-scores between observations of 2 and 4 years old. If you would like to use this in your work, code can be found in growth.R lines 525-555.
  
