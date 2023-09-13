@@ -17,7 +17,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">growthcleanr</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">2.1.1</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">2.2.0</span>
       </span>
     </div>
 
@@ -61,6 +61,9 @@
     </li>
     <li>
       <a href="../articles/developer-guidelines.html">Developer guidelines</a>
+    </li>
+    <li>
+      <a href="../articles/prelim-infants-algorithm.html">Preliminary infants algorithm</a>
     </li>
   </ul></li>
 <li>
@@ -119,7 +122,8 @@
 <span>  quietly <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  adult_cutpoint <span class="op">=</span> <span class="fl">20</span>,</span>
 <span>  weight_cap <span class="op">=</span> <span class="cn">Inf</span>,</span>
-<span>  adult_columns_filename <span class="op">=</span> <span class="st">""</span></span>
+<span>  adult_columns_filename <span class="op">=</span> <span class="st">""</span>,</span>
+<span>  prelim_infants <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -130,7 +134,7 @@
 
 
 <dt>param</dt>
-<dd><p>Vector identifying each measurement, may be 'WEIGHTKG', 'WEIGHTLBS', 'HEIGHTCM', 'HEIGHTIN', or 'LENGTHCM'
+<dd><p>Vector identifying each measurement, may be 'WEIGHTKG', 'WEIGHTLBS', 'HEIGHTCM', 'HEIGHTIN', 'LENGTHCM', or 'HEADCM'.
 'HEIGHTCM'/'HEIGHTIN' vs. 'LENGTHCM' only affects z-score calculations between ages 24 to 35 months (730 to 1095 days).
 All linear measurements below 731 days of life (age 0-23 months) are interpreted as supine length, and
 all linear measurements above 1095 days of life (age 36+ months) are interpreted as standing height.
@@ -272,6 +276,10 @@ to Inf. Defaults to Inf.</p></dd>
 <dd><p>Name of file to save original adult data, with additional output columns to
 as CSV. Defaults to "", for which this data will not be saved. Useful
 for post-analysis. For more information on this output, please see README.</p></dd>
+
+
+<dt>prelim_infants</dt>
+<dd><p>TRUE/FALSE. Run the in-development release of the infants algorithm (expands pediatric algorithm to improve performance for children 0 – 2 years). Not recommended for use in research. For more information regarding the logic of the algorithm, see the vignette 'Preliminary Infants Algorithm.' Defaults to FALSE.</p></dd>
 
 </dl></div>
     <div id="value">

@@ -20,6 +20,7 @@ articles:
       - large-data-sets
       - next-steps
       - developer-guidelines
+      - prelim-infants-algorithm
 
 reference:
   - title: "Cleaning height and weight observations"

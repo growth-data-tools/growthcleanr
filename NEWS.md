@@ -1,3 +1,17 @@
+# growthcleanr 2.2.0-prelim-infants - 2023-09-13
+
+## Added
+
+- Added option to cleangrowth for the preliminary infants algorithm -- expands pediatric algorithm to consider 0 - 2 years old, with infants = TRUE in cleangrowth(), with all steps implemented. Note that this option is still preliminary and should not be used for research. For more information regarding the logic of the algorithm, see the vignette 'Preliminary Infants Algorithm.' 
+
+
+# growthcleanr 3.0.0-infants-beta - 2023-03-13
+
+## Added
+
+- Added the infants beta release algorithm -- expands pediatric algorithm to consider 0 - 2 years old, with infants = TRUE in cleangrowth()
+  - Updated velocity data for the extension (#122)
+
 # growthcleanr 2.1.1 - 2023-03-01
 
 ## Changed

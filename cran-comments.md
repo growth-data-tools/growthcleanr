@@ -1,3 +1,22 @@
+# CRAN submission growthcleanr 2.2.0
+
+## R CMD check results
+There were no ERRORs or WARNINGs.
+
+There was one note:
+
+❯ checking installed package size ... NOTE
+    installed size is  5.9Mb
+    sub-directories of 1Mb or more:
+      extdata   5.0Mb
+      
+extdata has been compressed as much as possible -- data in that folder is necessary to run the package.
+
+## Downstream dependencies
+There are currently no downstream dependencies for this package.
+
+# Previous Submissions
+
 # CRAN submission growthcleanr 2.1.1
 
 ## R CMD check results
@@ -5,8 +24,6 @@ There were no ERRORs, WARNINGs, or NOTEs.
 
 ## Downstream dependencies
 There are currently no downstream dependencies for this package.
-
-# Previous Submissions
 
 # CRAN submission growthcleanr 2.1.0
 

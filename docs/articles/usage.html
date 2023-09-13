@@ -33,7 +33,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">growthcleanr</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">2.1.1</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">2.2.0</span>
       </span>
     </div>
 
@@ -82,6 +82,9 @@
     <li>
       <a href="../articles/developer-guidelines.html">Developer guidelines</a>
     </li>
+    <li>
+      <a href="../articles/prelim-infants-algorithm.html">Preliminary infants algorithm</a>
+    </li>
   </ul>
 </li>
 <li>
@@ -113,7 +116,7 @@
     <div class="page-header toc-ignore">
       <h1 data-toc-skip>Usage</h1>
             
-            <h4 data-toc-skip class="date">2023-03-01</h4>
+            <h4 data-toc-skip class="date">2023-09-13</h4>
       
       <small class="dont-index">Source: <a href="https://github.com/carriedaymont/growthcleanr/blob/main/vignettes/usage.Rmd" class="external-link"><code>vignettes/usage.Rmd</code></a></small>
       <div class="hidden name"><code>usage.Rmd</code></div>
@@ -152,45 +155,45 @@ al. paper</a>. This dataset is automatically loaded with the
 <p>It can be used as in the following example. Note that processing the
 example data with <code><a href="../reference/cleangrowth.html">cleangrowth()</a></code> will likely take a few
 minutes to complete.</p>
-<div class="sourceCode" id="cb6"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(data.table)</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(dplyr)</span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Convert the `syngrowth` data frame to a `data.table`</span></span>
-<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>data <span class="ot">&lt;-</span> <span class="fu">as.data.table</span>(syngrowth)</span>
-<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="co"># `setkey()` creates an efficient sorting key on the `data.table`; this is required</span></span>
-<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a><span class="co"># for `cleangrowth()`</span></span>
-<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a><span class="fu">setkey</span>(data, subjid, param, agedays)</span>
-<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a><span class="co"># Add a column `gcr_result` using `cleangrowth`</span></span>
-<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>cleaned_data <span class="ot">&lt;-</span> data[, gcr_result <span class="sc">:</span><span class="er">=</span> <span class="fu">cleangrowth</span>(subjid, param, agedays, sex, measurement)]</span>
-<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a><span class="co"># View a sample of the results</span></span>
-<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(cleaned_data)</span>
-<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>      id                               subjid sex  agedays    param measurement                  gcr_result</span>
-<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a><span class="dv">1</span><span class="sc">:</span> <span class="dv">83330</span> 002986c5<span class="sc">-</span>354d<span class="sc">-</span>bb9d<span class="sc">-</span>c180<span class="sc">-</span>4ce26813ca28   <span class="dv">1</span> <span class="fl">20489.22</span> HEIGHTCM       <span class="fl">151.1</span>                     Include</span>
-<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a><span class="dv">2</span><span class="sc">:</span> <span class="dv">83332</span> 002986c5<span class="sc">-</span>354d<span class="sc">-</span>bb9d<span class="sc">-</span>c180<span class="sc">-</span>4ce26813ca28   <span class="dv">1</span> <span class="fl">20860.22</span> HEIGHTCM       <span class="fl">151.1</span>                     Include</span>
-<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a><span class="dv">3</span><span class="sc">:</span> <span class="dv">83334</span> 002986c5<span class="sc">-</span>354d<span class="sc">-</span>bb9d<span class="sc">-</span>c180<span class="sc">-</span>4ce26813ca28   <span class="dv">1</span> <span class="fl">20860.22</span> HEIGHTCM       <span class="fl">150.6</span> Exclude<span class="sc">-</span>Same<span class="sc">-</span>Day<span class="sc">-</span>Extraneous</span>
-<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a><span class="dv">4</span><span class="sc">:</span> <span class="dv">83335</span> 002986c5<span class="sc">-</span>354d<span class="sc">-</span>bb9d<span class="sc">-</span>c180<span class="sc">-</span>4ce26813ca28   <span class="dv">1</span> <span class="fl">21231.22</span> HEIGHTCM       <span class="fl">151.1</span>                     Include</span>
-<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a><span class="dv">5</span><span class="sc">:</span> <span class="dv">83337</span> 002986c5<span class="sc">-</span>354d<span class="sc">-</span>bb9d<span class="sc">-</span>c180<span class="sc">-</span>4ce26813ca28   <span class="dv">1</span> <span class="fl">21602.22</span> HEIGHTCM       <span class="fl">151.1</span>                     Include</span>
-<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a><span class="dv">6</span><span class="sc">:</span> <span class="dv">83339</span> 002986c5<span class="sc">-</span>354d<span class="sc">-</span>bb9d<span class="sc">-</span>c180<span class="sc">-</span>4ce26813ca28   <span class="dv">1</span> <span class="fl">21623.22</span> HEIGHTCM       <span class="fl">151.1</span>                     Include</span>
-<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a><span class="co"># Summarize results by result type</span></span>
-<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>cleaned_data <span class="sc">%&gt;%</span> <span class="fu">group_by</span>(gcr_result) <span class="sc">%&gt;%</span> <span class="fu">tally</span>(<span class="at">sort=</span><span class="cn">TRUE</span>)</span>
-<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a><span class="co"># A tibble: 26 x 2</span></span>
-<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a>   gcr_result                      n</span>
-<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a>   <span class="sc">&lt;</span>fct<span class="sc">&gt;</span>                       <span class="er">&lt;</span>int<span class="sc">&gt;</span></span>
-<span id="cb6-29"><a href="#cb6-29" aria-hidden="true" tabindex="-1"></a> <span class="dv">1</span> Include                     <span class="dv">61652</span></span>
-<span id="cb6-30"><a href="#cb6-30" aria-hidden="true" tabindex="-1"></a> <span class="dv">2</span> Exclude<span class="sc">-</span>Extraneous<span class="sc">-</span>Same<span class="sc">-</span>Day <span class="dv">11263</span></span>
-<span id="cb6-31"><a href="#cb6-31" aria-hidden="true" tabindex="-1"></a> <span class="dv">3</span> Exclude<span class="sc">-</span>Carried<span class="sc">-</span>Forward      <span class="dv">7093</span></span>
-<span id="cb6-32"><a href="#cb6-32" aria-hidden="true" tabindex="-1"></a> <span class="dv">4</span> Exclude<span class="sc">-</span>Same<span class="sc">-</span>Day<span class="sc">-</span>Extraneous  <span class="dv">4010</span></span>
-<span id="cb6-33"><a href="#cb6-33" aria-hidden="true" tabindex="-1"></a> <span class="dv">5</span> Exclude<span class="sc">-</span>Same<span class="sc">-</span>Day<span class="sc">-</span>Identical    <span class="dv">623</span></span>
-<span id="cb6-34"><a href="#cb6-34" aria-hidden="true" tabindex="-1"></a> <span class="dv">6</span> Exclude<span class="sc">-</span>SD<span class="sc">-</span>Cutoff             <span class="dv">175</span></span>
-<span id="cb6-35"><a href="#cb6-35" aria-hidden="true" tabindex="-1"></a> <span class="dv">7</span> Exclude<span class="sc">-</span>EWMA<span class="dv">-8</span>                <span class="dv">139</span></span>
-<span id="cb6-36"><a href="#cb6-36" aria-hidden="true" tabindex="-1"></a> <span class="dv">8</span> Exclude<span class="sc">-</span>Distinct<span class="dv">-3</span><span class="sc">-</span>Or<span class="sc">-</span>More    <span class="dv">125</span></span>
-<span id="cb6-37"><a href="#cb6-37" aria-hidden="true" tabindex="-1"></a> <span class="dv">9</span> Exclude<span class="sc">-</span>BIV                   <span class="dv">108</span></span>
-<span id="cb6-38"><a href="#cb6-38" aria-hidden="true" tabindex="-1"></a><span class="dv">10</span> Exclude<span class="sc">-</span>EWMA<span class="sc">-</span>Extreme           <span class="dv">99</span></span>
-<span id="cb6-39"><a href="#cb6-39" aria-hidden="true" tabindex="-1"></a><span class="co"># … with 16 more rows</span></span></code></pre></div>
+<div class="sourceCode" id="cb6"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" tabindex="-1"></a><span class="fu">library</span>(data.table)</span>
+<span id="cb6-2"><a href="#cb6-2" tabindex="-1"></a><span class="fu">library</span>(dplyr)</span>
+<span id="cb6-3"><a href="#cb6-3" tabindex="-1"></a></span>
+<span id="cb6-4"><a href="#cb6-4" tabindex="-1"></a><span class="co"># Convert the `syngrowth` data frame to a `data.table`</span></span>
+<span id="cb6-5"><a href="#cb6-5" tabindex="-1"></a>data <span class="ot">&lt;-</span> <span class="fu">as.data.table</span>(syngrowth)</span>
+<span id="cb6-6"><a href="#cb6-6" tabindex="-1"></a></span>
+<span id="cb6-7"><a href="#cb6-7" tabindex="-1"></a><span class="co"># `setkey()` creates an efficient sorting key on the `data.table`; this is required</span></span>
+<span id="cb6-8"><a href="#cb6-8" tabindex="-1"></a><span class="co"># for `cleangrowth()`</span></span>
+<span id="cb6-9"><a href="#cb6-9" tabindex="-1"></a><span class="fu">setkey</span>(data, subjid, param, agedays)</span>
+<span id="cb6-10"><a href="#cb6-10" tabindex="-1"></a></span>
+<span id="cb6-11"><a href="#cb6-11" tabindex="-1"></a><span class="co"># Add a column `gcr_result` using `cleangrowth`</span></span>
+<span id="cb6-12"><a href="#cb6-12" tabindex="-1"></a>cleaned_data <span class="ot">&lt;-</span> data[, gcr_result <span class="sc">:=</span> <span class="fu">cleangrowth</span>(subjid, param, agedays, sex, measurement)]</span>
+<span id="cb6-13"><a href="#cb6-13" tabindex="-1"></a></span>
+<span id="cb6-14"><a href="#cb6-14" tabindex="-1"></a><span class="co"># View a sample of the results</span></span>
+<span id="cb6-15"><a href="#cb6-15" tabindex="-1"></a><span class="fu">head</span>(cleaned_data)</span>
+<span id="cb6-16"><a href="#cb6-16" tabindex="-1"></a>      id                               subjid sex  agedays    param measurement                  gcr_result</span>
+<span id="cb6-17"><a href="#cb6-17" tabindex="-1"></a><span class="dv">1</span><span class="sc">:</span> <span class="dv">83330</span> 002986c5<span class="sc">-</span>354d<span class="sc">-</span>bb9d<span class="sc">-</span>c180<span class="sc">-</span>4ce26813ca28   <span class="dv">1</span> <span class="fl">20489.22</span> HEIGHTCM       <span class="fl">151.1</span>                     Include</span>
+<span id="cb6-18"><a href="#cb6-18" tabindex="-1"></a><span class="dv">2</span><span class="sc">:</span> <span class="dv">83332</span> 002986c5<span class="sc">-</span>354d<span class="sc">-</span>bb9d<span class="sc">-</span>c180<span class="sc">-</span>4ce26813ca28   <span class="dv">1</span> <span class="fl">20860.22</span> HEIGHTCM       <span class="fl">151.1</span>                     Include</span>
+<span id="cb6-19"><a href="#cb6-19" tabindex="-1"></a><span class="dv">3</span><span class="sc">:</span> <span class="dv">83334</span> 002986c5<span class="sc">-</span>354d<span class="sc">-</span>bb9d<span class="sc">-</span>c180<span class="sc">-</span>4ce26813ca28   <span class="dv">1</span> <span class="fl">20860.22</span> HEIGHTCM       <span class="fl">150.6</span> Exclude<span class="sc">-</span>Same<span class="sc">-</span>Day<span class="sc">-</span>Extraneous</span>
+<span id="cb6-20"><a href="#cb6-20" tabindex="-1"></a><span class="dv">4</span><span class="sc">:</span> <span class="dv">83335</span> 002986c5<span class="sc">-</span>354d<span class="sc">-</span>bb9d<span class="sc">-</span>c180<span class="sc">-</span>4ce26813ca28   <span class="dv">1</span> <span class="fl">21231.22</span> HEIGHTCM       <span class="fl">151.1</span>                     Include</span>
+<span id="cb6-21"><a href="#cb6-21" tabindex="-1"></a><span class="dv">5</span><span class="sc">:</span> <span class="dv">83337</span> 002986c5<span class="sc">-</span>354d<span class="sc">-</span>bb9d<span class="sc">-</span>c180<span class="sc">-</span>4ce26813ca28   <span class="dv">1</span> <span class="fl">21602.22</span> HEIGHTCM       <span class="fl">151.1</span>                     Include</span>
+<span id="cb6-22"><a href="#cb6-22" tabindex="-1"></a><span class="dv">6</span><span class="sc">:</span> <span class="dv">83339</span> 002986c5<span class="sc">-</span>354d<span class="sc">-</span>bb9d<span class="sc">-</span>c180<span class="sc">-</span>4ce26813ca28   <span class="dv">1</span> <span class="fl">21623.22</span> HEIGHTCM       <span class="fl">151.1</span>                     Include</span>
+<span id="cb6-23"><a href="#cb6-23" tabindex="-1"></a></span>
+<span id="cb6-24"><a href="#cb6-24" tabindex="-1"></a><span class="co"># Summarize results by result type</span></span>
+<span id="cb6-25"><a href="#cb6-25" tabindex="-1"></a>cleaned_data <span class="sc">%&gt;%</span> <span class="fu">group_by</span>(gcr_result) <span class="sc">%&gt;%</span> <span class="fu">tally</span>(<span class="at">sort=</span><span class="cn">TRUE</span>)</span>
+<span id="cb6-26"><a href="#cb6-26" tabindex="-1"></a><span class="co"># A tibble: 26 x 2</span></span>
+<span id="cb6-27"><a href="#cb6-27" tabindex="-1"></a>   gcr_result                      n</span>
+<span id="cb6-28"><a href="#cb6-28" tabindex="-1"></a>   <span class="sc">&lt;</span>fct<span class="sc">&gt;</span>                       <span class="er">&lt;</span>int<span class="sc">&gt;</span></span>
+<span id="cb6-29"><a href="#cb6-29" tabindex="-1"></a> <span class="dv">1</span> Include                     <span class="dv">61652</span></span>
+<span id="cb6-30"><a href="#cb6-30" tabindex="-1"></a> <span class="dv">2</span> Exclude<span class="sc">-</span>Extraneous<span class="sc">-</span>Same<span class="sc">-</span>Day <span class="dv">11263</span></span>
+<span id="cb6-31"><a href="#cb6-31" tabindex="-1"></a> <span class="dv">3</span> Exclude<span class="sc">-</span>Carried<span class="sc">-</span>Forward      <span class="dv">7093</span></span>
+<span id="cb6-32"><a href="#cb6-32" tabindex="-1"></a> <span class="dv">4</span> Exclude<span class="sc">-</span>Same<span class="sc">-</span>Day<span class="sc">-</span>Extraneous  <span class="dv">4010</span></span>
+<span id="cb6-33"><a href="#cb6-33" tabindex="-1"></a> <span class="dv">5</span> Exclude<span class="sc">-</span>Same<span class="sc">-</span>Day<span class="sc">-</span>Identical    <span class="dv">623</span></span>
+<span id="cb6-34"><a href="#cb6-34" tabindex="-1"></a> <span class="dv">6</span> Exclude<span class="sc">-</span>SD<span class="sc">-</span>Cutoff             <span class="dv">175</span></span>
+<span id="cb6-35"><a href="#cb6-35" tabindex="-1"></a> <span class="dv">7</span> Exclude<span class="sc">-</span>EWMA<span class="dv">-8</span>                <span class="dv">139</span></span>
+<span id="cb6-36"><a href="#cb6-36" tabindex="-1"></a> <span class="dv">8</span> Exclude<span class="sc">-</span>Distinct<span class="dv">-3</span><span class="sc">-</span>Or<span class="sc">-</span>More    <span class="dv">125</span></span>
+<span id="cb6-37"><a href="#cb6-37" tabindex="-1"></a> <span class="dv">9</span> Exclude<span class="sc">-</span>BIV                   <span class="dv">108</span></span>
+<span id="cb6-38"><a href="#cb6-38" tabindex="-1"></a><span class="dv">10</span> Exclude<span class="sc">-</span>EWMA<span class="sc">-</span>Extreme           <span class="dv">99</span></span>
+<span id="cb6-39"><a href="#cb6-39" tabindex="-1"></a><span class="co"># … with 16 more rows</span></span></code></pre></div>
 <p>If you are able to run these steps and see a similar result, you have
 the <code>growthcleanr</code> package installed correctly. The resulting
 <code>cleaned_data</code> can be reviewed, subsetted, and compared in
@@ -257,9 +260,9 @@ will create the directory if necessary.</p>
 <p>Note that if you run <code>growthcleanr</code> in parallel with
 multiple batches and see warning errors such as the following, they can
 be ignored.</p>
-<div class="sourceCode" id="cb9"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>Warning messages<span class="sc">:</span></span>
-<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="dv">1</span><span class="sc">:</span> <span class="er">&lt;</span>anonymous<span class="sc">&gt;</span><span class="er">:</span> ... may be used <span class="cf">in</span> an incorrect context<span class="sc">:</span> ‘<span class="fu">.fun</span>(piece, ...)’</span>
-<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a><span class="dv">2</span><span class="sc">:</span> <span class="er">&lt;</span>anonymous<span class="sc">&gt;</span><span class="er">:</span> ... may be used <span class="cf">in</span> an incorrect context<span class="sc">:</span> ‘<span class="fu">.fun</span>(piece, ...)’</span></code></pre></div>
+<div class="sourceCode" id="cb9"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" tabindex="-1"></a>Warning messages<span class="sc">:</span></span>
+<span id="cb9-2"><a href="#cb9-2" tabindex="-1"></a><span class="dv">1</span><span class="sc">:</span> <span class="er">&lt;</span>anonymous<span class="sc">&gt;</span><span class="er">:</span> ... may be used <span class="cf">in</span> an incorrect context<span class="sc">:</span> ‘<span class="fu">.fun</span>(piece, ...)’</span>
+<span id="cb9-3"><a href="#cb9-3" tabindex="-1"></a><span class="dv">2</span><span class="sc">:</span> <span class="er">&lt;</span>anonymous<span class="sc">&gt;</span><span class="er">:</span> ... may be used <span class="cf">in</span> an incorrect context<span class="sc">:</span> ‘<span class="fu">.fun</span>(piece, ...)’</span></code></pre></div>
 <p>This set of warnings is coming from one of
 <code>growthcleanr</code>’s dependencies, and does not indicate either
 failure or improper execution.</p>

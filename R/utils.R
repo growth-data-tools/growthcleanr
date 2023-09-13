@@ -214,7 +214,7 @@ longwide <-
     if(all(c(id, subjid, sex, agedays, param, measurement, gcr_result,
              extra_cols) %in% colnames(long_df))) {
       long_df %>%
-        select(id, subjid, sex, agedays, param, measurement, gcr_result,
+        select(id, subjid, sex, agedays, param, measurement, all_of(gcr_result),
                all_of(extra_cols)) -> obs_df
     } else {
       # catch error if any variables were not found

@@ -581,7 +581,7 @@ cleanbatch <- function(data.df,
     subj.df[extraneous.this.day &
               extraneous, exclude := 'Exclude-Extraneous-Same-Day']
     subj.df[extraneous.this.day == TRUE, `:=`(tbc.sd.min = min(tbc.sd),
-                                           tbc.sd.max = max(tbc.sd)), by = .(param, agedays)]
+                                              tbc.sd.max = max(tbc.sd)), by = .(param, agedays)]
     subj.df[tbc.sd.max - tbc.sd.min > ifelse(param == 'HEIGHTCM',
                                              3,
                                              ifelse(

@@ -256,3 +256,36 @@ test_that("growthcleanr works without either adult or pediatric data", {
   expect_equal(length(no_res), nrow(nobody))
 
 })
+
+test_that("growthcleanr runs preliminary infants algorithm", {
+
+  # Run cleangrowth() on syngrowth data
+  data <- as.data.table(syngrowth)
+
+  # syngrowth hasn't changed in length
+  expect_equal(77721, data[, .N])
+  setkey(data, subjid, param, agedays)
+
+  # subset to pediatric data
+  data_peds <- copy(data[agedays < 20 * 365.25, ])
+
+  # Create very small sample; just to test no errors in running
+  d5_nhanes <- as.data.table(data_peds)[subjid %in% unique(data[, subjid])[1:5], ]
+  expect_equal(42, d5_nhanes[, .N])
+
+  # Clean samples with infants algorithm
+  cd5_nhanes <-
+    d5_nhanes[, gcr_result := cleangrowth(
+      subjid,
+      param,
+      agedays,
+      sex,
+      measurement,
+      prelim_infants = TRUE
+    )]
+
+  expect_equal(length(cd5_nhanes$gcr_result), 42)
+
+  # test that there are a correct number of levels
+  expect_equal(length(levels(cd5_nhanes$gcr_result)), 80)
+})
