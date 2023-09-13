@@ -1,0 +1,39 @@
+---
+title: "Preliminary infants algorithm"
+date: "`r Sys.Date()`"
+vignette: >
+  %\VignetteIndexEntry{Preliminary infants algorithm}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\usepackage[utf8]{inputenc}
+---
+
+Now available is the in-development release of the infants algorithm, which expands pediatric algorithm to clean 0 - 2 and revises its steps. This is strongly not recommended for general use, and still contains bugs. Possible bugs are enumerated below, and provide a starting point for potential developers:
+ 
+- Same day exclusions are over called in weight and head circumference
+- Carried forward exclusions are mis-called within that step
+- Same day exclusions are mis-called within that step
+- Raw differences step are over called in height
+- EWMA results missed in height
+- Carried forward results are missed in head circumference
+- Various smaller misalignments across exclusion results
+ 
+If you would still like to use this in-development feature, you can do this in the cleangrowth algorithm by turning on the option `prelim_infants`:
+ 
+```{r, eval=FALSE}
+# prepare data as a data.table
+data <- as.data.table(source_data)
+ 
+# set the data.table key for better indexing
+setkey(data, subjid, param, agedays)
+ 
+# generate new exclusion flag field using function
+cleaned_data <- 
+  data[, gcr_result := cleangrowth(subjid, param, agedays, sex, measurement,
+                                   prelim_infants = TRUE)]
+```
+ 
+For information on the steps in the infants algorithm, please see [PDF].
+ 
+This algorithm expansion also contains information on smoothing z-scores between observations of 2 and 4 years old. If you would like to use this in your work, code can be found in growth.R lines 525-555.
+ 
+If you have any feedback on this in-development feature, would like to provide feedback on the algorithm logic or code, or discuss other collaborations, please contact the maintainer of this package, Carrie Daymont.
