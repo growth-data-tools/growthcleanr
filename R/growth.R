@@ -84,7 +84,7 @@
 #' @param adult_columns_filename Name of file to save original adult data, with additional output columns to
 #' as CSV. Defaults to "", for which this data will not be saved. Useful
 #' for post-analysis. For more information on this output, please see README.
-#' @param infants TRUE/FALSE. Run the beta-release of the infants algorithm (expands pediatric algorithm to clean 0 - 2). Defaults to FALSE.
+#' @param prelim_infants TRUE/FALSE. Run the in-development release of the infants algorithm (expands pediatric algorithm to improve performance for children 0 – 2 years). Not recommended for use in research. For more information regarding the logic of the algorithm, see the vignette 'Preliminary Infants Algorithm.' Defaults to FALSE.
 #'
 #' @return Vector of exclusion codes for each of the input measurements.
 #'
@@ -157,7 +157,7 @@ cleangrowth <- function(subjid,
                         adult_cutpoint = 20,
                         weight_cap = Inf,
                         adult_columns_filename = "",
-                        infants = FALSE) {
+                        prelim_infants = FALSE) {
   # avoid "no visible binding" warnings
   N <- age_years <- batch <- exclude <- index <- line <- NULL
   newbatch <- sd.median <- sd.orig <- tanner.months <- tbc.sd <- NULL
@@ -168,7 +168,7 @@ cleangrowth <- function(subjid,
   sd.orig_uncorr <- agemonths <- intwt <- fengadays <- pmagedays <- cagedays <-
     unmod_zscore <- fen_wt_m <- fen_wt_l <- fen_wt_s <- cwho_cv <- ccdc_cv <-
     sd.c_cdc <- sd.c_who <- sd.c <- sd.corr <- seq_win <- sd.corr_abssumdiff <-
-    sd.orig_abssumdiff <- ..orig_colnames <- ctbc.sd <- sum_sde <- no_sde <-
+    sd.orig_abssumdiff <- orig_colnames <- ctbc.sd <- sum_sde <- no_sde <-
     sum_val <- no_dup_val <- no_outliers <- no_bigdiff <- nottoofar <- nnte <-
     nnte_full <- NULL
 
@@ -227,7 +227,7 @@ cleangrowth <- function(subjid,
 
   # constants for pediatric
   # enumerate the different exclusion levels
-  if (infants){
+  if (prelim_infants){
     # different for infants
     exclude.levels.peds <- c(
       'Include',
@@ -372,7 +372,7 @@ cleangrowth <- function(subjid,
       if (is.na(num.batches)) {
         num.batches <- getDoParWorkers()
       }
-      if (infants){
+      if (prelim_infants){
         # variables needed for parallel workers
         var_for_par <- c("temporary_extraneous", "valid", "swap_parameters",
                          "na_as_false", "ewma", "read_anthro", "as_matrix_delta",
@@ -426,7 +426,7 @@ cleangrowth <- function(subjid,
     tanner.fields <- colnames(tanner.ht.vel)
     tanner.fields <- tanner.fields[!tanner.fields %in% c('sex', 'tanner.months')]
 
-    if (!infants){
+    if (!prelim_infants){
       who_max_ht_vel_path <- ifelse(
         ref.data.path == "",
         system.file(file.path("extdata", "who_ht_maxvel_3sd.csv.gz"), package = "growthcleanr"),
@@ -510,15 +510,15 @@ cleangrowth <- function(subjid,
     data.all[param == 'LENGTHCM', param := 'HEIGHTCM']
 
     # calculate z/sd scores
-    if(infants){
+    if(prelim_infants){
       if (!quietly)
         cat(sprintf("[%s] Calculating z-scores...\n", Sys.time()))
       # removing z calculations, as they are not used
       # for infants, use z and who
       measurement.to.z <- read_anthro(ref.data.path, cdc.only = TRUE,
-                                      infants = T)
+                                      prelim_infants = TRUE)
       measurement.to.z_who <- read_anthro(ref.data.path, cdc.only = FALSE,
-                                          infants = T)
+                                          prelim_infants = TRUE)
 
       # calculate "standard deviation" scores
       if (!quietly)
@@ -589,7 +589,7 @@ cleangrowth <- function(subjid,
       # merge with fenton curves
       data.all <- merge(
         data.all, fent_foraga, by = c("sex", "intwt"),
-        all.x = T)
+        all.x = TRUE)
 
       data.all[fengadays < 259, pmagedays := agedays + fengadays]
       data.all[fengadays < 259, cagedays := pmagedays - 280]
@@ -599,7 +599,7 @@ cleangrowth <- function(subjid,
       # merge with fenton curves
       data.all <- merge(
         data.all, fent_forz, by = c("sex", "fengadays"),
-        all.x = T)
+        all.x = TRUE)
 
       # add unmodified zscore using weight in unrounded grams
       data.all[, unmod_zscore :=
@@ -617,11 +617,11 @@ cleangrowth <- function(subjid,
       data.all <- merge(data.all, growthfile_who,
                         by.x = c("sex", "cagedays"),
                         by.y = c("sex", "agedays"),
-                        all.x = T)
+                        all.x = TRUE)
       data.all <- merge(data.all, growthfile_cdc,
                         by.x = c("sex", "cagedays"),
                         by.y = c("sex", "agedays"),
-                        all.x = T)
+                        all.x = TRUE)
 
       # adjust WHO and CDC heights based on age
       data.all[, cwho_cv := v]
@@ -759,7 +759,7 @@ cleangrowth <- function(subjid,
     if (!is.data.table(sd.recenter)) {
       # INFANTS CHANGES:
       # use recentering file derived from work, independent of sex
-      if (infants){
+      if (prelim_infants){
         infants_reference_medians_path <- ifelse(
           ref.data.path == "",
           system.file(file.path("extdata",
@@ -838,7 +838,7 @@ cleangrowth <- function(subjid,
 
     setkey(data.all, subjid, param, agedays)
     data.all[, tbc.sd := sd.orig - sd.median]
-    if (infants){
+    if (prelim_infants){
       # separate out corrected and noncorrected values
       data.all[, ctbc.sd := sd.corr - sd.median]
     }
@@ -871,7 +871,7 @@ cleangrowth <- function(subjid,
     # safety check: treat observations where tbc.sd cannot be calculated as missing
     data.all[is.na(tbc.sd), exclude := 'Missing']
 
-    if (infants){
+    if (prelim_infants){
       # 4: identify subset that don't need to be cleaned (nnte) ----
 
       # identify those meeting all subjects meeting these criteria as "no need
@@ -894,7 +894,7 @@ cleangrowth <- function(subjid,
       data.all[, no_outliers := no_outliers == 1]
       # all max - min tbd.sc < 2.5
       data.all[, no_bigdiff :=
-                 rep((abs(max(tbc.sd, na.rm = T) - min(tbc.sd, na.rm = T)) < 2.5),
+                 rep((abs(max(tbc.sd, na.rm = TRUE) - min(tbc.sd, na.rm = TRUE)) < 2.5),
                      .N),
                by = c("subjid", "param")]
       # the previous value can't be too far from the current value
@@ -930,7 +930,7 @@ cleangrowth <- function(subjid,
         num.batches
       ))
     if (num.batches == 1) {
-      if (!infants){
+      if (!prelim_infants){
         ret.df <- cleanbatch(data.all,
                              log.path = log.path,
                              quietly = quietly,
@@ -975,7 +975,7 @@ cleangrowth <- function(subjid,
         ifelse(!dir.exists(log.path), dir.create(log.path, recursive = TRUE), FALSE)
       }
 
-      if (!infants){
+      if (!prelim_infants){
         ret.df <- ddply(
           data.all,
           .(batch),
@@ -1152,7 +1152,7 @@ cleangrowth <- function(subjid,
 #'
 #' @param path Path to supplied reference anthro data. Defaults to package anthro tables.
 #' @param cdc.only Whether or not only CDC data should be used. Defaults to false.
-#' @param infants TRUE/FALSE. Run the beta-release of the infants algorithm (expands pediatric algorithm to clean 0 - 2). Defaults to FALSE.
+#' @param prelim_infants TRUE/FALSE. Run the in-development release of the infants algorithm (expands pediatric algorithm to improve performance for children 0 – 2 years). Not recommended for use in research. For more information regarding the logic of the algorithm, see the vignette 'Preliminary Infants Algorithm.' Defaults to FALSE.
 #'
 #' @return Function for calculating BMI based on measurement, age in days, sex, and measurement value.
 #' @export
@@ -1165,13 +1165,13 @@ cleangrowth <- function(subjid,
 #' # Return calculating function while specifying a path and using only CDC data
 #' afunc <- read_anthro(path = system.file("extdata", package = "growthcleanr"),
 #'                      cdc.only = TRUE)
-read_anthro <- function(path = "", cdc.only = FALSE, infants = FALSE) {
+read_anthro <- function(path = "", cdc.only = FALSE, prelim_infants = FALSE) {
   # avoid "no visible bindings" warning
   src <- param <- sex <- age <- ret <- m <- NULL
   csdneg <- csdpos <- s <- NULL
 
   # set correct path based on input reference table path (if any)
-  if (!infants){
+  if (!prelim_infants){
     weianthro_path <- ifelse(
       path == "",
       system.file(file.path("extdata", "weianthro.txt.gz"), package = "growthcleanr"),
@@ -1207,7 +1207,7 @@ read_anthro <- function(path = "", cdc.only = FALSE, infants = FALSE) {
   }
   growth_cdc_ext <- read.csv(gzfile(growth_cdc_ext_path))
 
-  l <- if (!infants){
+  l <- if (!prelim_infants){
     list(
       with(
         read.table(gzfile(weianthro_path), header = TRUE),

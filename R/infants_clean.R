@@ -365,7 +365,7 @@ cleanbatch_infants <- function(data.df,
       upd.df <- copy(df)
       upd.df <- calc_oob_evil_twins(upd.df)
       # count the amount of oobs for each subject/param and distribute it out
-      upd.df[, `:=` (sum_oob = sum(oob, na.rm = T)), by =.(subjid, param)]
+      upd.df[, `:=` (sum_oob = sum(oob, na.rm = TRUE)), by =.(subjid, param)]
 
       any_oob <- any(upd.df$sum_oob >= 2)
       # while there are multiple oob, we want to remove
@@ -373,7 +373,7 @@ cleanbatch_infants <- function(data.df,
 
         # 9D
         # now calculate the maximum difference from the median tbc.sd
-        upd.df[, `:=` (sd_med = median(tbc.sd, na.rm = T)), by =.(subjid, param)]
+        upd.df[, `:=` (sd_med = median(tbc.sd, na.rm = TRUE)), by =.(subjid, param)]
         upd.df[, `:=` (med_diff = abs(tbc.sd - sd_med)), by =.(subjid, param)]
         upd.df[, `:=` (max_diff = med_diff  == max(med_diff)), by =.(subjid, param)]
         # for ones with no tbc.sd, mark as false
@@ -386,7 +386,7 @@ cleanbatch_infants <- function(data.df,
         #9E
         # reupdate valid (to recalculate OOB -- others are not included)
         upd.df <- calc_oob_evil_twins(df[valid(df),])
-        upd.df[, `:=` (sum_oob = sum(oob, na.rm = T)), by =.(subjid, param)]
+        upd.df[, `:=` (sum_oob = sum(oob, na.rm = TRUE)), by =.(subjid, param)]
 
         any_oob <- any(upd.df$sum_oob >= 2)
 
@@ -445,7 +445,7 @@ cleanbatch_infants <- function(data.df,
           "before" = abs(df_sub$agedays - c(NA, df_sub$agedays[1:(nrow(df_sub)-1)])),
           "after" = abs(df_sub$agedays - c(df_sub$agedays[2:(nrow(df_sub))], NA))
         )
-        maxdiff <- sapply(1:nrow(tmp), function(x){max(tmp[x,], na.rm = T)})
+        maxdiff <- sapply(1:nrow(tmp), function(x){max(tmp[x,], na.rm = TRUE)})
         exp_vals <- rep(-1.5, nrow(tmp))
         exp_vals[maxdiff > 365.25] <- -2.5
         exp_vals[maxdiff > 730.5] <- -3.5
@@ -652,7 +652,7 @@ cleanbatch_infants <- function(data.df,
         idx_roll <- c(embed(1:nrow(subj_df),4)[adjacent,, drop = FALSE])
         idx_adj <- which(subj_df$agedays %in% subj_df$agedays[idx_roll])
       } else {
-        adjacent <- F
+        adjacent <- FALSE
         idx_adj <- idx_roll <- c()
       }
 
@@ -680,7 +680,7 @@ cleanbatch_infants <- function(data.df,
             # only exclude sdes that are adjacent
             subj_df$agedays %in% subj_df$agedays[idx_roll]
           } else {
-            rep(F, nrow(subj_df))
+            rep(FALSE, nrow(subj_df))
           }
       # re-include similar groups
       criteria[subj_df$index %in% similar_ids] <- FALSE
@@ -709,7 +709,7 @@ cleanbatch_infants <- function(data.df,
 
         # check for SDEs by EWMA -- alternate calculate excluding other SDEs
         all_sdes <- duplicated(subj_df$agedays) |
-          duplicated(subj_df$agedays, fromLast = T)
+          duplicated(subj_df$agedays, fromLast = TRUE)
 
         # first, calculate which exponent we want to put through (pass a different
         # on for each exp)
@@ -717,7 +717,7 @@ cleanbatch_infants <- function(data.df,
           "before" = abs(subj_df$agedays - c(NA, subj_df$agedays[1:(nrow(subj_df)-1)])),
           "after" = abs(subj_df$agedays - c(subj_df$agedays[2:(nrow(subj_df))], NA))
         )
-        maxdiff <- sapply(1:nrow(tmp), function(x){max(tmp[x,], na.rm = T)})
+        maxdiff <- sapply(1:nrow(tmp), function(x){max(tmp[x,], na.rm = TRUE)})
         exp_vals <- rep(-1.5, nrow(tmp))
         exp_vals[maxdiff > 365.25] <- -2.5
         exp_vals[maxdiff > 730.5] <- -3.5
@@ -792,7 +792,7 @@ cleanbatch_infants <- function(data.df,
       if (any(subj_df$extraneous)){
         # check for SDEs
         all_sdes <- duplicated(subj_df$agedays) |
-          duplicated(subj_df$agedays, fromLast = T)
+          duplicated(subj_df$agedays, fromLast = TRUE)
 
         rem_ids <- c()
         rem_ids_extreme <- c()
@@ -930,7 +930,7 @@ cleanbatch_infants <- function(data.df,
           "before" = abs(df_sub$agedays - c(NA, df_sub$agedays[1:(nrow(df_sub)-1)])),
           "after" = abs(df_sub$agedays - c(df_sub$agedays[2:(nrow(df_sub))], NA))
         )
-        maxdiff <- sapply(1:nrow(tmp), function(x){max(tmp[x,], na.rm = T)})
+        maxdiff <- sapply(1:nrow(tmp), function(x){max(tmp[x,], na.rm = TRUE)})
         exp_vals <- rep(-1.5, nrow(tmp))
         exp_vals[maxdiff > 365.25] <- -2.5
         exp_vals[maxdiff > 730.5] <- -3.5
@@ -1191,7 +1191,7 @@ cleanbatch_infants <- function(data.df,
             "before" = abs(df_sub$agedays - c(NA, df_sub$agedays[1:(nrow(df_sub)-1)])),
             "after" = abs(df_sub$agedays - c(df_sub$agedays[2:(nrow(df_sub))], NA))
           )
-          maxdiff <- sapply(1:nrow(tmp), function(x){max(tmp[x,], na.rm = T)})
+          maxdiff <- sapply(1:nrow(tmp), function(x){max(tmp[x,], na.rm = TRUE)})
           exp_vals <- rep(-1.5, nrow(tmp))
           exp_vals[maxdiff > 365.25] <- -2.5
           exp_vals[maxdiff > 730.5] <- -3.5
@@ -1556,7 +1556,7 @@ cleanbatch_infants <- function(data.df,
         "before" = abs(df$agedays - c(NA, df$agedays[1:(nrow(df)-1)])),
         "after" = abs(df$agedays - c(df$agedays[2:(nrow(df))], NA))
       )
-      maxdiff_e <- sapply(1:nrow(tmp), function(x){max(tmp[x,], na.rm = T)})
+      maxdiff_e <- sapply(1:nrow(tmp), function(x){max(tmp[x,], na.rm = TRUE)})
       exp_vals <- rep(-1.5, nrow(tmp))
       exp_vals[maxdiff_e > 365.25] <- -2.5
       exp_vals[maxdiff_e > 730.5] <- -3.5
