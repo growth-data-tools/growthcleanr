@@ -704,7 +704,8 @@ cleangrowth <- function(subjid,
       orig_colnames <- c(orig_colnames, "sd.corr")
 
       # remove many added columns
-      data.all <- data.all[, ..orig_colnames]
+      data.all <- data.all[, colnames(data.all) %in% orig_colnames,
+                           with = FALSE]
     } else {
       # calculate z scores
       if (!quietly)
@@ -916,7 +917,8 @@ cleangrowth <- function(subjid,
 
       # remove many added columns -- except for nnte
       orig_colnames <- c(orig_colnames, "nnte", "nnte_full")
-      data.all <- data.all[, ..orig_colnames]
+      data.all <- data.all[, colnames(data.all) %in% orig_colnames,
+                           with = FALSE]
     }
     # pediatric: cleanbatch (most of steps) ----
 
