@@ -324,8 +324,6 @@ cleanbatch_infants <- function(data.df,
   # then, do some explicit overwriting for the 0 case (otherwise will be
   # set as missing)
   data.df[v == 0, exclude := exc_nam]
-  print(sum(data.df$v == 0))
-
 
   # 9d.  Replace exc_*=0 if exc_*==2 & redo step 5 (temporary extraneous)
   data.df[exclude == 'Exclude-Temporary-Extraneous-Same-Day', exclude := 'Include']
