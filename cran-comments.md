@@ -6,7 +6,7 @@ There were no ERRORs or WARNINGs.
 There was one note:
 
 ❯ checking installed package size ... NOTE
-    installed size is  6.1Mb
+    installed size is  5.9Mb
     sub-directories of 1Mb or more:
       extdata   5.0Mb
       
