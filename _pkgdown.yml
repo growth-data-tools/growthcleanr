@@ -20,6 +20,7 @@ articles:
       - large-data-sets
       - next-steps
       - developer-guidelines
+      - prelim-infants-algorithm
 
 reference:
   - title: "Cleaning height and weight observations"
@@ -68,6 +69,12 @@ reference:
       - who_ht_maxvel_2sd
       - who_ht_vel_2sd
       - who_ht_vel_3sd
+      - growth_cdc_ext_infants
+      - growth_who_ext
+      - rc-reference-medians
+      - tanner_ht_vel_rev
+      - who_hc_maxvel
+      - who_hc_vel_3sd
 
 repo:
   url:

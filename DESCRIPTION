@@ -1,7 +1,7 @@
 Package: growthcleanr
 Type: Package
 Title: Data Cleaner for Anthropometric Measurements
-Version: 2.1.1
+Version: 2.2.0
 Authors@R: c(
     person("Carrie", "Daymont", email = "cdaymont@pennstatehealth.psu.edu", role = c("ctb","cre")),
     person("Robert", "Grundmeier", role = "aut"),

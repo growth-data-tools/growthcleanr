@@ -28,6 +28,36 @@ NULL
 #'
 NULL
 
+#' CDC Growth Percentile Table for Infants
+#'
+#' Part of default CDC-derived tables
+#'
+#' Contains percentiles for various ages, gender, and weights, pre-calculated by CDC for infants algorithm
+#'
+#' @name growth_cdc_ext_infants
+#'
+#' @section growthfile_cdc_ext_infants.csv.gz:
+#'
+#' Used in function `cleangrowth()`
+#'
+#'
+NULL
+
+#' WHO Growth Percentile Table
+#'
+#' Part of default WHO-derived tables
+#'
+#' Contains percentiles for various ages, gender, and weights, pre-calculated by WHO
+#'
+#' @name growth_who_ext
+#'
+#' @section growthfile_who.csv.gz:
+#'
+#' Used in function `cleangrowth()`
+#'
+#'
+NULL
+
 #' Length to Age Table
 #'
 #' Part of default CDC-derived tables
@@ -37,6 +67,20 @@ NULL
 #' @name lenanthro
 #'
 #' @section lenanthro.txt.gz:
+#'
+#' Used in function `cleangrowth()`
+#'
+#'
+NULL
+
+#' Infants reference medians
+#'
+#' Contains reference median values for default recentering in the infants
+#' algorithm
+#'
+#' @name rc-reference-medians
+#'
+#' @section rcfile-2023-08-15_format.csv.gz:
 #'
 #' Used in function `cleangrowth()`
 #'
@@ -66,6 +110,22 @@ NULL
 #' @name tanner_ht_vel
 #'
 #' @section tanner_ht_vel.csv.gz:
+#'
+#' Used in function `cleangrowth()`
+#'
+#'
+NULL
+
+#' Tanner Growth Velocity Table for Infants
+#'
+#' Part of default CDC-derived tables
+#'
+#' Contains velocities for growth pre-calculated by CDC, used for the infants
+#' algorithm
+#'
+#' @name tanner_ht_vel_rev
+#'
+#' @section tanner_ht_vel_rev.csv.gz:
 #'
 #' Used in function `cleangrowth()`
 #'
@@ -167,6 +227,38 @@ NULL
 #'
 NULL
 
+#' WHO Maximum Head Circumference Velocity for (3\eqn{\sigma})
+#'
+#' Part of default WHO-derived tables
+#'
+#' Contains three standard deviations for the World Health Organization values of
+#' maximum head circumference velocities.
+#'
+#' @name who_hc_maxvel
+#'
+#' @section who_hc_maxvel_3sd_infants.csv.gz:
+#'
+#' Used in function `cleangrowth()`
+#'
+#'
+NULL
+
+#' WHO Head Circumference Velocity for (3\eqn{\sigma})
+#'
+#' Part of default WHO-derived tables
+#'
+#' Contains three standard deviations for the World Health Organization values of
+#' head circumference velocities.
+#'
+#' @name who_hc_vel_3sd
+#'
+#' @section who_hc_vel_3sd_infants.csv.gz:
+#'
+#' Used in function `cleangrowth()`
+#'
+#'
+NULL
+
 #' CDC SAS BMI Input
 #'
 #' Contains input data for CDC SAS macro for calculating BMI values.
@@ -202,6 +294,34 @@ NULL
 #' @section CDCref_d.csv.gz:
 #'
 #' Used for extended BMI computation
+#'
+#'
+NULL
+
+#' Fenton Growth Curves
+#'
+#' Fenton growth curves with premature infant data with sex, age, and integer
+#' weight
+#'
+#' @name fent_foraga
+#'
+#' @section fent_foraga.csv.gz:
+#'
+#' Used in function `cleangrowth()`
+#'
+#'
+NULL
+
+#' Fenton Growth Curve Z-Scores
+#'
+#' Fenton growth curves with premature infant z-scores for height and head
+#'circumference
+#'
+#' @name fent_forz
+#'
+#' @section fent_forz.csv.gz:
+#'
+#' Used in function `cleangrowth()`
 #'
 #'
 NULL

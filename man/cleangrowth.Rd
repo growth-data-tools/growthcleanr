@@ -29,13 +29,14 @@ cleangrowth(
   quietly = TRUE,
   adult_cutpoint = 20,
   weight_cap = Inf,
-  adult_columns_filename = ""
+  adult_columns_filename = "",
+  prelim_infants = FALSE
 )
 }
 \arguments{
 \item{subjid}{Vector of unique identifiers for each subject in the database.}
 
-\item{param}{Vector identifying each measurement, may be 'WEIGHTKG', 'WEIGHTLBS', 'HEIGHTCM', 'HEIGHTIN', or 'LENGTHCM'
+\item{param}{Vector identifying each measurement, may be 'WEIGHTKG', 'WEIGHTLBS', 'HEIGHTCM', 'HEIGHTIN', 'LENGTHCM', or 'HEADCM'.
 'HEIGHTCM'/'HEIGHTIN' vs. 'LENGTHCM' only affects z-score calculations between ages 24 to 35 months (730 to 1095 days).
 All linear measurements below 731 days of life (age 0-23 months) are interpreted as supine length, and
 all linear measurements above 1095 days of life (age 36+ months) are interpreted as standing height.
@@ -137,6 +138,8 @@ to Inf. Defaults to Inf.}
 \item{adult_columns_filename}{Name of file to save original adult data, with additional output columns to
 as CSV. Defaults to "", for which this data will not be saved. Useful
 for post-analysis. For more information on this output, please see README.}
+
+\item{prelim_infants}{TRUE/FALSE. Run the in-development release of the infants algorithm (expands pediatric algorithm to improve performance for children 0 – 2 years). Not recommended for use in research. For more information regarding the logic of the algorithm, see the vignette 'Preliminary Infants Algorithm.' Defaults to FALSE.}
 }
 \value{
 Vector of exclusion codes for each of the input measurements.

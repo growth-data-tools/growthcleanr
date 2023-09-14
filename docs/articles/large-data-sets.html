@@ -33,7 +33,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">growthcleanr</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">2.1.1</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">2.2.0</span>
       </span>
     </div>
 
@@ -82,6 +82,9 @@
     <li>
       <a href="../articles/developer-guidelines.html">Developer guidelines</a>
     </li>
+    <li>
+      <a href="../articles/prelim-infants-algorithm.html">Preliminary infants algorithm</a>
+    </li>
   </ul>
 </li>
 <li>
@@ -113,7 +116,7 @@
     <div class="page-header toc-ignore">
       <h1 data-toc-skip>Working with large data sets</h1>
             
-            <h4 data-toc-skip class="date">2023-03-01</h4>
+            <h4 data-toc-skip class="date">2023-09-13</h4>
       
       <small class="dont-index">Source: <a href="https://github.com/carriedaymont/growthcleanr/blob/main/vignettes/large-data-sets.Rmd" class="external-link"><code>vignettes/large-data-sets.Rmd</code></a></small>
       <div class="hidden name"><code>large-data-sets.Rmd</code></div>
@@ -222,12 +225,12 @@ appropriate.</li>
 </ul>
 <p>To invoke <code>exec/gcdriver.R</code> on a single input file using
 <code>Rscript</code>:</p>
-<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">Rscript</span> exec/gcdriver.R <span class="at">--quietly</span> <span class="at">--sdrecenter</span> nhanes mydata.csv mydata-cleaned.csv</span></code></pre></div>
+<div class="sourceCode" id="cb5"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="ex">Rscript</span> exec/gcdriver.R <span class="at">--quietly</span> <span class="at">--sdrecenter</span> nhanes mydata.csv mydata-cleaned.csv</span></code></pre></div>
 <p>If you have many small files saved, for example, as
 <code>mydata.00001.csv</code>, <code>mydata.00002.csv</code>, etc., this
 driver can be invoked using <code>parallel</code>:</p>
-<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">%</span> ls mydata.<span class="pp">?????</span>.csv <span class="kw">|</span> <span class="ex">parallel</span> <span class="at">-j2</span> <span class="at">--eta</span> <span class="dt">\</span></span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Rscript exec/gcdriver.R --quietly --sdrecenter nhanes {} {}-clean.csv"</span></span></code></pre></div>
+<div class="sourceCode" id="cb6"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" tabindex="-1"></a><span class="fu">ls</span> mydata.<span class="pp">?????</span>.csv <span class="kw">|</span> <span class="ex">parallel</span> <span class="at">-j2</span> <span class="at">--eta</span> <span class="dt">\</span></span>
+<span id="cb6-2"><a href="#cb6-2" tabindex="-1"></a>  <span class="st">"Rscript exec/gcdriver.R --quietly --sdrecenter nhanes {} {}-clean.csv"</span></span></code></pre></div>
 <p>This lists your input files, and passes the filename list to parallel
 to use in invoking the driver script, one file at a time, and to process
 as parallel jobs as resources are available. Each run of the job then
@@ -275,7 +278,7 @@ to the <code>exec/gcdriver.R</code> script take advantage of this
 performance improvement.</p>
 <p>The following example may be used on a large dataset of adult
 data.</p>
-<div class="sourceCode" id="cb7"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">Rscript</span> exec/gcdriver.R <span class="at">--numbatches</span> 4 <span class="at">--adult_split</span> 50 my-large-input.csv my-large-input-cleaned.csv</span></code></pre></div>
+<div class="sourceCode" id="cb7"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a><span class="ex">Rscript</span> exec/gcdriver.R <span class="at">--numbatches</span> 4 <span class="at">--adult_split</span> 50 my-large-input.csv my-large-input-cleaned.csv</span></code></pre></div>
 <ul>
 <li>
 <code>--numbatches 4</code> may be a good starting point for testing
@@ -293,29 +296,29 @@ available hardware can make a difference in overall run time.</p>
 </h2>
 <p>All available options for <code>gcdriver.R</code> are described
 below.</p>
-<div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">Rscript</span> exec/gcdriver.R <span class="at">--help</span></span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="ex">usage:</span> gcdriver.R [--] [--help] [--quietly] [--opts OPTS] [--sdrecenter</span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>       <span class="ex">SDRECENTER]</span> [--adult_cutpoint ADULT_CUTPOINT] [--weightcap</span>
-<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>       <span class="ex">WEIGHTCAP]</span> [--numbatches NUMBATCHES] [--adult_split ADULT_SPLIT]</span>
-<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>       <span class="ex">infile</span> outfile</span>
-<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a><span class="ex">CLI</span> driver for growthcleanr</span>
-<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a><span class="ex">positional</span> arguments:</span>
-<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>  <span class="ex">infile</span>                input file</span>
-<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>  <span class="ex">outfile</span>               output file</span>
-<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a><span class="ex">flags:</span></span>
-<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-h,</span> <span class="at">--help</span>            show this help message and exit</span>
-<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-q,</span> <span class="at">--quietly</span>         Disable verbose output</span>
-<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a><span class="ex">optional</span> arguments:</span>
-<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-x,</span> <span class="at">--opts</span>            RDS file containing argument values</span>
-<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-s,</span> <span class="at">--sdrecenter</span>      sd.recenter data file [default: ]</span>
-<span id="cb8-20"><a href="#cb8-20" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-a,</span> <span class="at">--adult_cutpoint</span>  adult cutpoint [default: 20]</span>
-<span id="cb8-21"><a href="#cb8-21" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-w,</span> <span class="at">--weightcap</span>       weight cap [default: Inf]</span>
-<span id="cb8-22"><a href="#cb8-22" aria-hidden="true" tabindex="-1"></a>  <span class="ex">-n,</span> <span class="at">--numbatches</span>      Number of batches [default: 1]</span>
-<span id="cb8-23"><a href="#cb8-23" aria-hidden="true" tabindex="-1"></a>  <span class="ex">--adult_split</span>         Number of splits to run data on [default: Inf]</span></code></pre></div>
+<div class="sourceCode" id="cb8"><pre class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" tabindex="-1"></a><span class="ex">Rscript</span> exec/gcdriver.R <span class="at">--help</span></span>
+<span id="cb8-2"><a href="#cb8-2" tabindex="-1"></a><span class="ex">usage:</span> gcdriver.R <span class="pp">[--]</span> <span class="pp">[--</span><span class="ss">help</span><span class="pp">]</span> <span class="pp">[--</span><span class="ss">quietly</span><span class="pp">]</span> [--opts OPTS] [--sdrecenter</span>
+<span id="cb8-3"><a href="#cb8-3" tabindex="-1"></a>       <span class="ex">SDRECENTER]</span> [--adult_cutpoint ADULT_CUTPOINT] [--weightcap</span>
+<span id="cb8-4"><a href="#cb8-4" tabindex="-1"></a>       <span class="ex">WEIGHTCAP]</span> [--numbatches NUMBATCHES] [--adult_split ADULT_SPLIT]</span>
+<span id="cb8-5"><a href="#cb8-5" tabindex="-1"></a>       <span class="ex">infile</span> outfile</span>
+<span id="cb8-6"><a href="#cb8-6" tabindex="-1"></a></span>
+<span id="cb8-7"><a href="#cb8-7" tabindex="-1"></a><span class="ex">CLI</span> driver for growthcleanr</span>
+<span id="cb8-8"><a href="#cb8-8" tabindex="-1"></a></span>
+<span id="cb8-9"><a href="#cb8-9" tabindex="-1"></a><span class="ex">positional</span> arguments:</span>
+<span id="cb8-10"><a href="#cb8-10" tabindex="-1"></a>  <span class="ex">infile</span>                input file</span>
+<span id="cb8-11"><a href="#cb8-11" tabindex="-1"></a>  <span class="ex">outfile</span>               output file</span>
+<span id="cb8-12"><a href="#cb8-12" tabindex="-1"></a></span>
+<span id="cb8-13"><a href="#cb8-13" tabindex="-1"></a><span class="ex">flags:</span></span>
+<span id="cb8-14"><a href="#cb8-14" tabindex="-1"></a>  <span class="ex">-h,</span> <span class="at">--help</span>            show this help message and exit</span>
+<span id="cb8-15"><a href="#cb8-15" tabindex="-1"></a>  <span class="ex">-q,</span> <span class="at">--quietly</span>         Disable verbose output</span>
+<span id="cb8-16"><a href="#cb8-16" tabindex="-1"></a></span>
+<span id="cb8-17"><a href="#cb8-17" tabindex="-1"></a><span class="ex">optional</span> arguments:</span>
+<span id="cb8-18"><a href="#cb8-18" tabindex="-1"></a>  <span class="ex">-x,</span> <span class="at">--opts</span>            RDS file containing argument values</span>
+<span id="cb8-19"><a href="#cb8-19" tabindex="-1"></a>  <span class="ex">-s,</span> <span class="at">--sdrecenter</span>      sd.recenter data file [default: ]</span>
+<span id="cb8-20"><a href="#cb8-20" tabindex="-1"></a>  <span class="ex">-a,</span> <span class="at">--adult_cutpoint</span>  adult cutpoint [default: 20]</span>
+<span id="cb8-21"><a href="#cb8-21" tabindex="-1"></a>  <span class="ex">-w,</span> <span class="at">--weightcap</span>       weight cap [default: Inf]</span>
+<span id="cb8-22"><a href="#cb8-22" tabindex="-1"></a>  <span class="ex">-n,</span> <span class="at">--numbatches</span>      Number of batches [default: 1]</span>
+<span id="cb8-23"><a href="#cb8-23" tabindex="-1"></a>  <span class="ex">--adult_split</span>         Number of splits to run data on [default: Inf]</span></code></pre></div>
 </div>
   </div>
 

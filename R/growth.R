@@ -5,7 +5,7 @@
 #' Clean growth measurements
 #'
 #' @param subjid Vector of unique identifiers for each subject in the database.
-#' @param param Vector identifying each measurement, may be 'WEIGHTKG', 'WEIGHTLBS', 'HEIGHTCM', 'HEIGHTIN', or 'LENGTHCM'
+#' @param param Vector identifying each measurement, may be 'WEIGHTKG', 'WEIGHTLBS', 'HEIGHTCM', 'HEIGHTIN', 'LENGTHCM', or 'HEADCM'.
 #'   'HEIGHTCM'/'HEIGHTIN' vs. 'LENGTHCM' only affects z-score calculations between ages 24 to 35 months (730 to 1095 days).
 #'   All linear measurements below 731 days of life (age 0-23 months) are interpreted as supine length, and
 #'   all linear measurements above 1095 days of life (age 36+ months) are interpreted as standing height.
@@ -84,6 +84,7 @@
 #' @param adult_columns_filename Name of file to save original adult data, with additional output columns to
 #' as CSV. Defaults to "", for which this data will not be saved. Useful
 #' for post-analysis. For more information on this output, please see README.
+#' @param prelim_infants TRUE/FALSE. Run the in-development release of the infants algorithm (expands pediatric algorithm to improve performance for children 0 – 2 years). Not recommended for use in research. For more information regarding the logic of the algorithm, see the vignette 'Preliminary Infants Algorithm.' Defaults to FALSE.
 #'
 #' @return Vector of exclusion codes for each of the input measurements.
 #'
@@ -155,12 +156,21 @@ cleangrowth <- function(subjid,
                         quietly = TRUE,
                         adult_cutpoint = 20,
                         weight_cap = Inf,
-                        adult_columns_filename = "") {
+                        adult_columns_filename = "",
+                        prelim_infants = FALSE) {
   # avoid "no visible binding" warnings
   N <- age_years <- batch <- exclude <- index <- line <- NULL
   newbatch <- sd.median <- sd.orig <- tanner.months <- tbc.sd <- NULL
   v <- v_adult <- whoagegrp.ht <- whoagegrp_ht <- z.orig <- NULL
+  z.orig_cdc <- z.orig_who <- sd.orig_cdc <- sd.orig_who <- NULL
   result <- NULL
+
+  sd.orig_uncorr <- agemonths <- intwt <- fengadays <- pmagedays <- cagedays <-
+    unmod_zscore <- fen_wt_m <- fen_wt_l <- fen_wt_s <- cwho_cv <- ccdc_cv <-
+    sd.c_cdc <- sd.c_who <- sd.c <- sd.corr <- seq_win <- sd.corr_abssumdiff <-
+    sd.orig_abssumdiff <- orig_colnames <- ctbc.sd <- sum_sde <- no_sde <-
+    sum_val <- no_dup_val <- no_outliers <- no_bigdiff <- nottoofar <- nnte <-
+    nnte_full <- NULL
 
   # preprocessing ----
 
@@ -184,6 +194,18 @@ cleangrowth <- function(subjid,
   if (!is.numeric(weight_cap) | weight_cap < 0){
     stop("weight_cap not numeric. Please enter a positive number.")
   }
+  if (any(!param %in% c("LENGTHCM", "HEIGHTCM", "WEIGHTKG", "HEIGHIN",
+                        "WEIGHTLBS", "HEADCM"))){
+    cat(sprintf("[%s] Parameters included that do not match 'param' specifications. Marking as missing...\n", Sys.time()))
+    data.all.ages <-
+      data.all.ages[
+        !param %in% c("LENGTHCM", "HEIGHTCM", "WEIGHTKG", "HEIGHIN",
+                      "WEIGHTLBS", "HEADCM"), v := NA]
+    data.all.ages <-
+      data.all.ages[
+        !param %in% c("LENGTHCM", "HEIGHTCM", "WEIGHTKG", "HEIGHIN",
+                      "WEIGHTLBS", "HEADCM"), v_adult := NA]
+  }
 
   # rate limit cutpoint -- min 18, max 20
   cutpoint_update <-
@@ -205,36 +227,107 @@ cleangrowth <- function(subjid,
 
   # constants for pediatric
   # enumerate the different exclusion levels
-  exclude.levels.peds <- c(
-    'Include',
-    'Unit-Error-High',
-    'Unit-Error-Low',
-    'Unit-Error-Possible',
-    'Swapped-Measurements',
-    'Exclude',
-    'Missing',
-    'Exclude-Temporary-Extraneous-Same-Day',
-    'Exclude-Carried-Forward',
-    'Exclude-SD-Cutoff',
-    'Exclude-EWMA-Extreme',
-    'Exclude-EWMA-Extreme-Pair',
-    'Exclude-Extraneous-Same-Day',
-    'Exclude-EWMA-8',
-    'Exclude-EWMA-9',
-    'Exclude-EWMA-10',
-    'Exclude-EWMA-11',
-    'Exclude-EWMA-12',
-    'Exclude-EWMA-13',
-    'Exclude-EWMA-14',
-    'Exclude-Min-Height-Change',
-    'Exclude-Max-Height-Change',
-    'Exclude-Pair-Delta-17',
-    'Exclude-Pair-Delta-18',
-    'Exclude-Pair-Delta-19',
-    'Exclude-Single-Outlier',
-    'Exclude-Too-Many-Errors',
-    'Exclude-Too-Many-Errors-Other-Parameter'
-  )
+  if (prelim_infants){
+    # different for infants
+    exclude.levels.peds <- c(
+      'Include',
+      'Unit-Error-High',
+      'Unit-Error-Low',
+      'Unit-Error-Possible',
+      'Swapped-Measurements',
+      'Exclude',
+      'Missing',
+      'Not cleaned',
+      'Exclude-Temporary-Extraneous-Same-Day',
+      'Exclude-Carried-Forward',
+      # added CF exclusions
+      "Exclude-1-CF-deltaZ-<0.05",
+      "Exclude-1-CF-deltaZ-<0.1-wholehalfimp",
+      "Exclude-Teen-2-plus-CF-deltaZ-<0.05",
+      "Exclude-Teen-2-plus-CF-deltaZ-<0.1-wholehalfimp",
+      'Exclude-EWMA-Extreme',
+      'Exclude-EWMA-Extreme-Pair',
+      'Exclude-SDE-Identical',
+      'Exclude-SDE-All-Exclude',
+      'Exclude-SDE-All-Extreme',
+      'Exclude-SDE-EWMA',
+      'Exclude-SDE-One-Day',
+      "Exclude-EWMA2-middle",
+      "Exclude-EWMA2-birth-WT",
+      "Exclude-EWMA2-birth-WT-ext",
+      "Exclude-EWMA2-first",
+      "Exclude-EWMA2-first-ext",
+      "Exclude-EWMA2-last",
+      "Exclude-EWMA2-last-high",
+      "Exclude-EWMA2-last-ext",
+      "Exclude-EWMA2-last-ext-high",
+      "Exclude-EWMA2-birth-HT-HC",
+      "Exclude-EWMA2-birth-HT-HC-ext",
+      "Exclude-Min-diff",
+      "Exclude-Max-diff",
+      "Exclude-2-meas->1-year",
+      "Exclude-2-meas-<1-year",
+      "Exclude-1-meas",
+      "Exclude-Error-load",
+
+      # old
+
+      'Exclude-Extraneous-Same-Day',
+      'Exclude-SD-Cutoff',
+      'Exclude-EWMA-8',
+      'Exclude-EWMA-9',
+      'Exclude-EWMA-10',
+      'Exclude-EWMA-11',
+      'Exclude-EWMA-12',
+      'Exclude-EWMA-13',
+      'Exclude-EWMA-14',
+      'Exclude-Min-Height-Change',
+      'Exclude-Max-Height-Change',
+      'Exclude-Pair-Delta-17',
+      'Exclude-Pair-Delta-18',
+      'Exclude-Pair-Delta-19',
+      'Exclude-Single-Outlier',
+      'Exclude-Too-Many-Errors',
+      'Exclude-Too-Many-Errors-Other-Parameter',
+
+      #new
+      "Exclude-Absolute-BIV",
+      "Exclude-Standardized-BIV",
+      "Exclude-Evil-Twins",
+      "Exclude-EWMA1-Extreme"
+    )
+  } else {
+    exclude.levels.peds <- c(
+      'Include',
+      'Unit-Error-High',
+      'Unit-Error-Low',
+      'Unit-Error-Possible',
+      'Swapped-Measurements',
+      'Exclude',
+      'Missing',
+      'Exclude-Temporary-Extraneous-Same-Day',
+      'Exclude-Carried-Forward',
+      'Exclude-SD-Cutoff',
+      'Exclude-EWMA-Extreme',
+      'Exclude-EWMA-Extreme-Pair',
+      'Exclude-Extraneous-Same-Day',
+      'Exclude-EWMA-8',
+      'Exclude-EWMA-9',
+      'Exclude-EWMA-10',
+      'Exclude-EWMA-11',
+      'Exclude-EWMA-12',
+      'Exclude-EWMA-13',
+      'Exclude-EWMA-14',
+      'Exclude-Min-Height-Change',
+      'Exclude-Max-Height-Change',
+      'Exclude-Pair-Delta-17',
+      'Exclude-Pair-Delta-18',
+      'Exclude-Pair-Delta-19',
+      'Exclude-Single-Outlier',
+      'Exclude-Too-Many-Errors',
+      'Exclude-Too-Many-Errors-Other-Parameter'
+    )
+  }
 
   exclude.levels.adult <- c(
     "Include",
@@ -279,10 +372,20 @@ cleangrowth <- function(subjid,
       if (is.na(num.batches)) {
         num.batches <- getDoParWorkers()
       }
-      # variables needed for parallel workers
-      var_for_par <- c("temporary_extraneous", "valid", "swap_parameters",
-                       "na_as_false", "ewma", "read_anthro", "as_matrix_delta",
-                       "sd_median")
+      if (prelim_infants){
+        # variables needed for parallel workers
+        var_for_par <- c("temporary_extraneous", "valid", "swap_parameters",
+                         "na_as_false", "ewma", "read_anthro", "as_matrix_delta",
+                         "sd_median",
+
+                         "temporary_extraneous_infants",
+                         "get_dop", "calc_oob_evil_twins",
+                         "calc_and_recenter_z_scores")
+      } else {
+        var_for_par <- c("temporary_extraneous", "valid", "swap_parameters",
+                         "na_as_false", "ewma", "read_anthro", "as_matrix_delta",
+                         "sd_median")
+      }
 
       cl <- makeCluster(num.batches)
       clusterExport(cl = cl, varlist = var_for_par, envir = environment())
@@ -323,17 +426,31 @@ cleangrowth <- function(subjid,
     tanner.fields <- colnames(tanner.ht.vel)
     tanner.fields <- tanner.fields[!tanner.fields %in% c('sex', 'tanner.months')]
 
-    who_max_ht_vel_path <- ifelse(
-      ref.data.path == "",
-      system.file(file.path("extdata", "who_ht_maxvel_3sd.csv.gz"), package = "growthcleanr"),
-      file.path(ref.data.path, "who_ht_maxvel_3sd.csv.gz")
-    )
+    if (!prelim_infants){
+      who_max_ht_vel_path <- ifelse(
+        ref.data.path == "",
+        system.file(file.path("extdata", "who_ht_maxvel_3sd.csv.gz"), package = "growthcleanr"),
+        file.path(ref.data.path, "who_ht_maxvel_3sd.csv.gz")
+      )
 
-    who_ht_vel_3sd_path <- ifelse(
-      ref.data.path == "",
-      system.file(file.path("extdata", "who_ht_vel_3sd.csv.gz"), package = "growthcleanr"),
-      file.path(ref.data.path, "who_ht_vel_3sd.csv.gz")
-    )
+      who_ht_vel_3sd_path <- ifelse(
+        ref.data.path == "",
+        system.file(file.path("extdata", "who_ht_vel_3sd.csv.gz"), package = "growthcleanr"),
+        file.path(ref.data.path, "who_ht_vel_3sd.csv.gz")
+      )
+    } else {
+      who_max_ht_vel_path <- ifelse(
+        ref.data.path == "",
+        system.file(file.path("extdata", "who_hc_maxvel_3sd_infants.csv.gz"), package = "growthcleanr"),
+        file.path(ref.data.path, "who_hc_maxvel_3sd_infants.csv.gz")
+      )
+
+      who_ht_vel_3sd_path <- ifelse(
+        ref.data.path == "",
+        system.file(file.path("extdata", "who_hc_vel_3sd_infants.csv.gz"), package = "growthcleanr"),
+        file.path(ref.data.path, "who_hc_vel_3sd_infants.csv.gz")
+      )
+    }
     who.max.ht.vel <- fread(who_max_ht_vel_path)
     who.ht.vel <- fread(who_ht_vel_3sd_path)
     setkey(who.max.ht.vel, sex, whoagegrp_ht)
@@ -392,16 +509,215 @@ cleangrowth <- function(subjid,
     # NOTE: this will be changed in future to consider this difference
     data.all[param == 'LENGTHCM', param := 'HEIGHTCM']
 
-    # calculate z scores
-    if (!quietly)
-      cat(sprintf("[%s] Calculating z-scores...\n", Sys.time()))
-    measurement.to.z <- read_anthro(ref.data.path, cdc.only = TRUE)
-    data.all[, z.orig := measurement.to.z(param, agedays, sex, v)]
+    # calculate z/sd scores
+    if(prelim_infants){
+      if (!quietly)
+        cat(sprintf("[%s] Calculating z-scores...\n", Sys.time()))
+      # removing z calculations, as they are not used
+      # for infants, use z and who
+      measurement.to.z <- read_anthro(ref.data.path, cdc.only = TRUE,
+                                      prelim_infants = TRUE)
+      measurement.to.z_who <- read_anthro(ref.data.path, cdc.only = FALSE,
+                                          prelim_infants = TRUE)
 
-    # calculate "standard deviation" scores
-    if (!quietly)
-      cat(sprintf("[%s] Calculating SD-scores...\n", Sys.time()))
-    data.all[, sd.orig := measurement.to.z(param, agedays, sex, v, TRUE)]
+      # calculate "standard deviation" scores
+      if (!quietly)
+        cat(sprintf("[%s] Calculating SD-scores...\n", Sys.time()))
+      data.all[, sd.orig_cdc := measurement.to.z(param, agedays, sex, v, TRUE)]
+      data.all[, sd.orig_who := measurement.to.z_who(param, agedays, sex, v, TRUE)]
+
+      # smooth z-scores/SD scores between ages 1 - 3yo using weighted scores
+      # older uses cdc, younger uses who
+      data.all$ageyears <- data.all$agedays/365.25
+
+      who_weight <- 4 - (data.all$ageyears)
+      cdc_weight <- (data.all$ageyears) - 2
+
+      smooth_val <- data.all$ageyears >= 2 &
+        data.all$ageyears <= 4 &
+        data.all$param != "HEADCM"
+      data.all[smooth_val,
+               sd.orig := (data.all$sd.orig_cdc[smooth_val]*cdc_weight[smooth_val] +
+                             data.all$sd.orig_who[smooth_val]*who_weight[smooth_val])/2]
+
+      # otherwise use WHO and CDC for older and younger, respectively
+      who_val <- data.all$param == "HEADCM" |
+        data.all$ageyears < 2
+
+      data.all[(who_val & !smooth_val) | (smooth_val & is.na(data.all$sd.orig_cdc)),
+               sd.orig := data.all$sd.orig_who[(who_val & !smooth_val)  | (smooth_val & is.na(data.all$sd.orig_cdc))]]
+
+      cdc_val <- data.all$param != "HEADCM" &
+        data.all$ageyears > 4
+
+      data.all[(cdc_val & !smooth_val) | (smooth_val & is.na(data.all$sd.orig_who)),
+               sd.orig := data.all$sd.orig_cdc[(cdc_val & !smooth_val) | (smooth_val & is.na(data.all$sd.orig_who))]]
+
+      # NOTE: SD SCORES IN CODE ARE Z IN INFANT DOCS -- USE sd.orig ONLY
+
+      # keep the original, uncorrected, unrecentered zscores
+      data.all[,sd.orig_uncorr := sd.orig]
+
+      # NOTE: MAY WANT TO SUBSET HERE
+
+      # 2b: corrected z scores ----
+
+      # keep the original column names -- we're adding a ton of columns that we
+      # want to filter out after correction
+      orig_colnames <- copy(colnames(data.all))
+
+      # start by reading in fenton data
+      fent_foraga <- fread(
+        system.file(file.path("extdata", "fent_foraga.csv.gz"),
+                    package = "growthcleanr"))
+      fent_forz <- fread(
+        system.file(file.path("extdata", "fent_forz.csv.gz"),
+                    package = "growthcleanr"))
+
+      # add age in months
+      data.all[, agemonths := agedays/30.4375]
+
+      potcorr <- data.all$param == "WEIGHTKG" &
+        data.all$sd.orig < -2 &
+        data.all$agemonths < 10
+
+      # integer weight is in grams, rounded to the nearest 10
+      data.all[potcorr, intwt := round(v*100)*10]
+      # replace to facilitate merging with fenton curves
+      data.all[intwt >= 250 & intwt <=560, intwt := 570]
+
+      # merge with fenton curves
+      data.all <- merge(
+        data.all, fent_foraga, by = c("sex", "intwt"),
+        all.x = TRUE)
+
+      data.all[fengadays < 259, pmagedays := agedays + fengadays]
+      data.all[fengadays < 259, cagedays := pmagedays - 280]
+      # replace fengadays with pmagedays to facilitate merging
+      data.all[, fengadays := pmagedays]
+
+      # merge with fenton curves
+      data.all <- merge(
+        data.all, fent_forz, by = c("sex", "fengadays"),
+        all.x = TRUE)
+
+      # add unmodified zscore using weight in unrounded grams
+      data.all[, unmod_zscore :=
+                 ((v*1000/fen_wt_m)^fen_wt_l - 1)/(fen_wt_l * fen_wt_s)]
+
+      # read in who/cdc data
+      growthfile_who <- fread(
+        system.file(file.path("extdata", "growthfile_who.csv.gz"),
+                    package = "growthcleanr"))
+      growthfile_cdc <- fread(
+        system.file(file.path("extdata", "growthfile_cdc_ext_infants.csv.gz"),
+                    package = "growthcleanr"))
+
+      # merge in the who/cdc data
+      data.all <- merge(data.all, growthfile_who,
+                        by.x = c("sex", "cagedays"),
+                        by.y = c("sex", "agedays"),
+                        all.x = TRUE)
+      data.all <- merge(data.all, growthfile_cdc,
+                        by.x = c("sex", "cagedays"),
+                        by.y = c("sex", "agedays"),
+                        all.x = TRUE)
+
+      # adjust WHO and CDC heights based on age
+      data.all[, cwho_cv := v]
+      data.all[, ccdc_cv := v]
+      data.all[param == "HEIGHTCM" & agedays > 730 & cagedays <= 730,
+               cwho_cv := cwho_cv + 0.8]
+      data.all[param == "HEIGHTCM" & agedays > 730 & cagedays <= 730,
+               ccdc_cv := ccdc_cv + 0.7]
+
+      # create the corrected z scores
+      # use read anthro, but pass in different arguments
+      # pass in the corrected height
+      data.all[, sd.c_cdc :=
+                 measurement.to.z(param, cagedays, sex, ccdc_cv, TRUE)]
+      data.all[, sd.c_who :=
+                 measurement.to.z_who(param, cagedays, sex, cwho_cv, TRUE)]
+
+      # smooth using weights as in original z score creation
+      who_weight <- 4 - (data.all$agedays/365.25)
+      cdc_weight <- (data.all$agedays/365.25) - 2
+
+      smooth_val <- data.all$agedays/365.25 >= 2 &
+        data.all$agedays/365.25 <= 4 &
+        data.all$param != "HEADCM"
+      data.all[smooth_val,
+               sd.c := (sd.c_cdc[smooth_val]*cdc_weight[smooth_val] +
+                             sd.c_who[smooth_val]*who_weight[smooth_val])/2]
+
+      # otherwise use WHO and CDC for older and younger, respectively
+      who_val <- data.all$param == "HEADCM" |
+        data.all$agedays/365.25 < 2
+      data.all[who_val | (smooth_val & is.na(data.all$sd.c_cdc)),
+               sd.c := data.all$sd.c_who[who_val  | (smooth_val & is.na(data.all$sd.c_cdc))]]
+
+      cdc_val <- data.all$param != "HEADCM" |
+        data.all$agedays/365.25 > 4
+      data.all[cdc_val | (smooth_val & is.na(data.all$sd.c_who)),
+               sd.c := data.all$sd.c_cdc[cdc_val | (smooth_val & is.na(data.all$sd.c_who))]]
+
+      # smooth corrected and uncorrected z scores
+      uncorrweight <-  4 - (data.all$agedays/365.25)
+      corrweight <- (data.all$agedays/365.25) - 2
+      smooth_val <- data.all$agedays/365.25 >= 2 &
+        data.all$agedays/365.25 <= 4
+      data.all[smooth_val,
+               sd.corr := (sd.c[smooth_val]*corrweight[smooth_val] +
+                             sd.orig[smooth_val]*uncorrweight[smooth_val])/2]
+      # for < 2 & potential correction, use fenton corrected score
+      data.all[agedays/365.25 <= 2 & potcorr, sd.corr := sd.c]
+      # for > 4, use original z score
+      data.all[agedays/365.25 >= 4, sd.corr := sd.orig]
+      # for not potential corrections, use the original z score
+      data.all[!potcorr, sd.corr := sd.orig]
+      # if the who/fenton score is not available for any reason, use the
+      # original
+      data.all[is.na(sd.corr), sd.corr := sd.orig]
+
+      # check for consistent growth
+      examine_only <- data.all$param == "WEIGHTKG" &
+        data.all$subjid %in% data.all$subjid[potcorr]
+      tmp <- copy(data.all[examine_only,])
+      tmp <- tmp[order(subjid, agedays),]
+      tmp[, seq_win := sequence(.N), by = subjid]
+      # we're only looking at the first 4 values, and they need to be < 2 years
+      tmp <- tmp[seq_win <= 4 & (agedays/365.25) < 2,]
+      # don't look at subjects where there is only 1 score and there is no
+      # value for either
+      tmp <- tmp[!(is.na(sd.corr & sd.orig)),]
+      tmp <- tmp[subjid %in% names(table(subjid) > 1),]
+      # create differences, absolute sum them
+      tmp[, sd.corr_abssumdiff := abs(sum(sd.corr[1] - sd.corr)), by = subjid]
+      tmp[, sd.orig_abssumdiff := abs(sum(sd.orig[1] - sd.orig)), by = subjid]
+      # find subjects where corrected value needs to be replaced
+      sub_replace <- unique(tmp[sd.corr_abssumdiff > sd.orig_abssumdiff,
+                                subjid])
+
+      # replace accordingly in the main dataframe
+      data.all[subjid %in% sub_replace, sd.corr := sd.orig]
+
+      orig_colnames <- c(orig_colnames, "sd.corr")
+
+      # remove many added columns
+      data.all <- data.all[, colnames(data.all) %in% orig_colnames,
+                           with = FALSE]
+    } else {
+      # calculate z scores
+      if (!quietly)
+        cat(sprintf("[%s] Calculating z-scores...\n", Sys.time()))
+      measurement.to.z <- read_anthro(ref.data.path, cdc.only = TRUE)
+      data.all[, z.orig := measurement.to.z(param, agedays, sex, v)]
+
+      # calculate "standard deviation" scores
+      if (!quietly)
+        cat(sprintf("[%s] Calculating SD-scores...\n", Sys.time()))
+      data.all[, sd.orig := measurement.to.z(param, agedays, sex, v, TRUE)]
+    }
 
     # sort by subjid, param, agedays
     setkey(data.all, subjid, param, agedays)
@@ -416,6 +732,8 @@ cleangrowth <- function(subjid,
     )),
     levels = exclude.levels,
     ordered = TRUE)]
+    # also mark certain measurements to not consider
+    data.all[param == "HEADCM" & agedays > (3*365.25), exclude := "Not cleaned"]
 
     # define field names needed by helper functions
     ewma.fields <- c('ewma.all', 'ewma.before', 'ewma.after')
@@ -440,10 +758,32 @@ cleangrowth <- function(subjid,
     # returns a data table indexed by param, sex, agedays. can use NHANES reference
     # data, derive from input, or use user-supplied data.
     if (!is.data.table(sd.recenter)) {
-      # Use NHANES medians if the string "nhanes" is specified instead of a data.table
-      # or if sd.recenter is not specified as "derive" and N < 5000.
-      if ((is.character(sd.recenter) & tolower(sd.recenter) == "nhanes") |
-          (!(is.character(sd.recenter) & tolower(sd.recenter) == "derive") & (data.all[, .N] < 5000))) {
+      # INFANTS CHANGES:
+      # use recentering file derived from work, independent of sex
+      if (prelim_infants){
+        infants_reference_medians_path <- ifelse(
+          ref.data.path == "",
+          system.file(file.path("extdata",
+                                "rcfile-2023-08-15_format.csv.gz"),
+                      package = "growthcleanr"),
+          file.path(ref.data.path, "rcfile-2023-08-15_format.csv.gz")
+        )
+        sd.recenter <- fread(infants_reference_medians_path)
+        if (!quietly)
+          cat(
+            sprintf(
+              "[%s] Using infants reference medians...\n",
+              Sys.time()
+            )
+          )
+      } else if ((is.character(sd.recenter) &
+                  tolower(sd.recenter) == "nhanes") |
+          (!(is.character(sd.recenter) &
+             tolower(sd.recenter) == "derive") & (data.all[, .N] < 5000))) {
+
+        # Use NHANES medians if the string "nhanes" is specified instead of a data.table
+        # or if sd.recenter is not specified as "derive" and N < 5000.
+
         nhanes_reference_medians_path <- ifelse(
           ref.data.path == "",
           system.file(file.path("extdata", "nhanes-reference-medians.csv.gz"), package = "growthcleanr"),
@@ -496,8 +836,13 @@ cleangrowth <- function(subjid,
     # add sd.recenter to data, and recenter
     setkey(data.all, param, sex, agedays)
     data.all <- sd.recenter[data.all]
+
     setkey(data.all, subjid, param, agedays)
     data.all[, tbc.sd := sd.orig - sd.median]
+    if (prelim_infants){
+      # separate out corrected and noncorrected values
+      data.all[, ctbc.sd := sd.corr - sd.median]
+    }
 
     if (sdrecentered.filename != "") {
       write.csv(data.all, sdrecentered.filename, row.names = FALSE)
@@ -527,6 +872,54 @@ cleangrowth <- function(subjid,
     # safety check: treat observations where tbc.sd cannot be calculated as missing
     data.all[is.na(tbc.sd), exclude := 'Missing']
 
+    if (prelim_infants){
+      # 4: identify subset that don't need to be cleaned (nnte) ----
+
+      # identify those meeting all subjects meeting these criteria as "no need
+      # to ewma"
+      # does the subject have sdes
+
+      # keep the original column names -- we're adding a ton of columns that we
+      # want to filter out after correction
+      orig_colnames <- copy(colnames(data.all))
+      # no SDEs
+      data.all[, sum_sde := .N, by = c("subjid", "param", "agedays")]
+      data.all[, no_sde := sum_sde == 1]
+      # does the subject have identical values
+      data.all[, sum_val := .N, by = c("subjid", "param", "v")]
+      data.all[, no_dup_val := sum_val == 1]
+      # all tbc.sd are within [-3,3] -- 0 is false
+      data.all[, no_outliers := sum((tbc.sd > -3 & tbc.sd < 3) |
+                                      is.na(tbc.sd)) == (.N),
+               by = c("subjid", "param")]
+      data.all[, no_outliers := no_outliers == 1]
+      # all max - min tbd.sc < 2.5
+      data.all[, no_bigdiff :=
+                 rep((abs(max(tbc.sd, na.rm = TRUE) - min(tbc.sd, na.rm = TRUE)) < 2.5),
+                     .N),
+               by = c("subjid", "param")]
+      # the previous value can't be too far from the current value
+      data.all[, seq_win := sequence(.N), by = c("subjid", "param")]
+      data.all[, nottoofar :=
+                 (abs(tbc.sd - dplyr::lag(tbc.sd)) < 1 | seq_win == 1) &
+                 (abs(tbc.sd - dplyr::lead(tbc.sd)) < 1 | seq_win == .N),
+               by = c("subjid", "param")]
+      data.all[is.na(nottoofar),  nottoofar :=  TRUE]
+
+      # cumulative: no need to ewma -- needs to work for all within a subject &
+      # parameter
+      data.all[, nnte := no_sde & no_dup_val & no_outliers & no_bigdiff & nottoofar]
+      # NNTE can be calculated by parameter -- but it's occasionally easier for
+      # calculations to require all parameters to be nnte
+      data.all[, nnte_full := sum(nnte) == .N, by = c("subjid", "param")]
+      data.all[, nnte := sum(nnte) == .N, by = c("subjid")]
+
+
+      # remove many added columns -- except for nnte
+      orig_colnames <- c(orig_colnames, "nnte", "nnte_full")
+      data.all <- data.all[, colnames(data.all) %in% orig_colnames,
+                           with = FALSE]
+    }
     # pediatric: cleanbatch (most of steps) ----
 
     # NOTE: the rest of cleangrowth's steps are done through cleanbatch().
@@ -539,23 +932,44 @@ cleangrowth <- function(subjid,
         num.batches
       ))
     if (num.batches == 1) {
-      ret.df <- cleanbatch(data.all,
-                           log.path = log.path,
-                           quietly = quietly,
-                           parallel = parallel,
-                           measurement.to.z = measurement.to.z,
-                           ewma.fields = ewma.fields,
-                           ewma.exp = ewma.exp,
-                           recover.unit.error = recover.unit.error,
-                           include.carryforward = include.carryforward,
-                           sd.extreme = sd.extreme,
-                           z.extreme = z.extreme,
-                           exclude.levels = exclude.levels,
-                           tanner.ht.vel = tanner.ht.vel,
-                           who.ht.vel = who.ht.vel,
-                           lt3.exclude.mode = lt3.exclude.mode,
-                           error.load.threshold = error.load.threshold,
-                           error.load.mincount = error.load.mincount)
+      if (!prelim_infants){
+        ret.df <- cleanbatch(data.all,
+                             log.path = log.path,
+                             quietly = quietly,
+                             parallel = parallel,
+                             measurement.to.z = measurement.to.z,
+                             ewma.fields = ewma.fields,
+                             ewma.exp = ewma.exp,
+                             recover.unit.error = recover.unit.error,
+                             include.carryforward = include.carryforward,
+                             sd.extreme = sd.extreme,
+                             z.extreme = z.extreme,
+                             exclude.levels = exclude.levels,
+                             tanner.ht.vel = tanner.ht.vel,
+                             who.ht.vel = who.ht.vel,
+                             lt3.exclude.mode = lt3.exclude.mode,
+                             error.load.threshold = error.load.threshold,
+                             error.load.mincount = error.load.mincount)
+      } else {
+        ret.df <- cleanbatch_infants(
+          data.all,
+          log.path = log.path,
+          quietly = quietly,
+          parallel = parallel,
+          measurement.to.z = measurement.to.z,
+          ewma.fields = ewma.fields,
+          recover.unit.error = recover.unit.error,
+          include.carryforward = include.carryforward,
+          sd.extreme = sd.extreme,
+          z.extreme = z.extreme,
+          exclude.levels = exclude.levels,
+          tanner.ht.vel = tanner.ht.vel,
+          who.ht.vel = who.ht.vel,
+          lt3.exclude.mode = lt3.exclude.mode,
+          error.load.threshold = error.load.threshold,
+          error.load.mincount = error.load.mincount,
+          ref.data.path = ref.data.path)
+      }
     } else {
       # create log directory if necessary
       if (!is.na(log.path)) {
@@ -563,29 +977,55 @@ cleangrowth <- function(subjid,
         ifelse(!dir.exists(log.path), dir.create(log.path, recursive = TRUE), FALSE)
       }
 
-      ret.df <- ddply(
-        data.all,
-        .(batch),
-        cleanbatch,
-        .parallel = parallel,
-        .paropts = list(.packages = "data.table"),
-        log.path = log.path,
-        quietly = quietly,
-        parallel = parallel,
-        measurement.to.z = measurement.to.z,
-        ewma.fields = ewma.fields,
-        ewma.exp = ewma.exp,
-        recover.unit.error = recover.unit.error,
-        include.carryforward = include.carryforward,
-        sd.extreme = sd.extreme,
-        z.extreme = z.extreme,
-        exclude.levels = exclude.levels,
-        tanner.ht.vel = tanner.ht.vel,
-        who.ht.vel = who.ht.vel,
-        lt3.exclude.mode = lt3.exclude.mode,
-        error.load.threshold = error.load.threshold,
-        error.load.mincount = error.load.mincount
-      )
+      if (!prelim_infants){
+        ret.df <- ddply(
+          data.all,
+          .(batch),
+          cleanbatch,
+          .parallel = parallel,
+          .paropts = list(.packages = "data.table"),
+          log.path = log.path,
+          quietly = quietly,
+          parallel = parallel,
+          measurement.to.z = measurement.to.z,
+          ewma.fields = ewma.fields,
+          ewma.exp = ewma.exp,
+          recover.unit.error = recover.unit.error,
+          include.carryforward = include.carryforward,
+          sd.extreme = sd.extreme,
+          z.extreme = z.extreme,
+          exclude.levels = exclude.levels,
+          tanner.ht.vel = tanner.ht.vel,
+          who.ht.vel = who.ht.vel,
+          lt3.exclude.mode = lt3.exclude.mode,
+          error.load.threshold = error.load.threshold,
+          error.load.mincount = error.load.mincount
+        )
+      } else {
+        ret.df <- ddply(
+          data.all,
+          .(batch),
+          cleanbatch_infants,
+          .parallel = parallel,
+          .paropts = list(.packages = "data.table"),
+          log.path = log.path,
+          quietly = quietly,
+          parallel = parallel,
+          measurement.to.z = measurement.to.z,
+          ewma.fields = ewma.fields,
+          recover.unit.error = recover.unit.error,
+          include.carryforward = include.carryforward,
+          sd.extreme = sd.extreme,
+          z.extreme = z.extreme,
+          exclude.levels = exclude.levels,
+          tanner.ht.vel = tanner.ht.vel,
+          who.ht.vel = who.ht.vel,
+          lt3.exclude.mode = lt3.exclude.mode,
+          error.load.threshold = error.load.threshold,
+          error.load.mincount = error.load.mincount,
+          ref.data.path = ref.data.path
+        )
+      }
       stopCluster(cl)
     }
 
@@ -714,6 +1154,7 @@ cleangrowth <- function(subjid,
 #'
 #' @param path Path to supplied reference anthro data. Defaults to package anthro tables.
 #' @param cdc.only Whether or not only CDC data should be used. Defaults to false.
+#' @param prelim_infants TRUE/FALSE. Run the in-development release of the infants algorithm (expands pediatric algorithm to improve performance for children 0 – 2 years). Not recommended for use in research. For more information regarding the logic of the algorithm, see the vignette 'Preliminary Infants Algorithm.' Defaults to FALSE.
 #'
 #' @return Function for calculating BMI based on measurement, age in days, sex, and measurement value.
 #' @export
@@ -726,122 +1167,251 @@ cleangrowth <- function(subjid,
 #' # Return calculating function while specifying a path and using only CDC data
 #' afunc <- read_anthro(path = system.file("extdata", package = "growthcleanr"),
 #'                      cdc.only = TRUE)
-read_anthro <- function(path = "", cdc.only = FALSE) {
+read_anthro <- function(path = "", cdc.only = FALSE, prelim_infants = FALSE) {
   # avoid "no visible bindings" warning
   src <- param <- sex <- age <- ret <- m <- NULL
   csdneg <- csdpos <- s <- NULL
 
   # set correct path based on input reference table path (if any)
-  weianthro_path <- ifelse(
-    path == "",
-    system.file(file.path("extdata", "weianthro.txt.gz"), package = "growthcleanr"),
-    file.path(path, "weianthro.txt.gz")
-  )
-  lenanthro_path <- ifelse(
-    path == "",
-    system.file(file.path("extdata", "lenanthro.txt.gz"), package = "growthcleanr"),
-    file.path(path, "lenanthro.txt.gz")
-  )
-  bmianthro_path <- ifelse(
-    path == "",
-    system.file(file.path("extdata", "bmianthro.txt.gz"), package = "growthcleanr"),
-    file.path(path, "bmianthro.txt.gz")
-  )
-  growth_cdc_ext_path <- ifelse(
-    path == "",
-    system.file(file.path("extdata", "growthfile_cdc_ext.csv.gz"), package = "growthcleanr"),
-    file.path(path, "growthfile_cdc_ext.csv.gz")
-  )
-
-
+  if (!prelim_infants){
+    weianthro_path <- ifelse(
+      path == "",
+      system.file(file.path("extdata", "weianthro.txt.gz"), package = "growthcleanr"),
+      file.path(path, "weianthro.txt.gz")
+    )
+    lenanthro_path <- ifelse(
+      path == "",
+      system.file(file.path("extdata", "lenanthro.txt.gz"), package = "growthcleanr"),
+      file.path(path, "lenanthro.txt.gz")
+    )
+    bmianthro_path <- ifelse(
+      path == "",
+      system.file(file.path("extdata", "bmianthro.txt.gz"), package = "growthcleanr"),
+      file.path(path, "bmianthro.txt.gz")
+    )
+    growth_cdc_ext_path <- ifelse(
+      path == "",
+      system.file(file.path("extdata", "growthfile_cdc_ext.csv.gz"), package = "growthcleanr"),
+      file.path(path, "growthfile_cdc_ext.csv.gz")
+    )
+  } else {
+    weianthro_path <- lenanthro_path <- bmianthro_path <-
+      ifelse(
+        path == "",
+        system.file(file.path("extdata", "growthfile_who.csv.gz"), package = "growthcleanr"),
+        file.path(path, "growthfile_who.csv.gz")
+      )
+    growth_cdc_ext_path <- ifelse(
+      path == "",
+      system.file(file.path("extdata", "growthfile_cdc_ext_infants.csv.gz"), package = "growthcleanr"),
+      file.path(path, "growthfile_cdc_ext_infants.csv.gz")
+    )
+  }
   growth_cdc_ext <- read.csv(gzfile(growth_cdc_ext_path))
 
-  l <- list(
-    with(
-      read.table(gzfile(weianthro_path), header = TRUE),
-      data.frame(
-        src = 'WHO',
-        param = 'WEIGHTKG',
-        sex = sex - 1,
-        age,
-        l,
-        m,
-        s,
-        csdpos = as.double(NA),
-        csdneg = as.double(NA)
-      )
-    ),
-    with(
-      read.table(gzfile(lenanthro_path), header = TRUE),
-      data.frame(
-        src = 'WHO',
-        param = 'HEIGHTCM',
-        sex = sex - 1,
-        age,
-        l,
-        m,
-        s,
-        csdpos = as.double(NA),
-        csdneg = as.double(NA)
-      )
-    ),
-    with(
-      read.table(gzfile(bmianthro_path), header = TRUE),
-      data.frame(
-        src = 'WHO',
-        param = 'BMI',
-        sex = sex - 1,
-        age,
-        l,
-        m,
-        s,
-        csdpos = as.double(NA),
-        csdneg = as.double(NA)
-      )
-    ),
-    with(
-      growth_cdc_ext,
-      data.frame(
-        src = 'CDC',
-        param = 'WEIGHTKG',
-        sex,
-        age = agedays,
-        l = cdc_wt_l,
-        m = cdc_wt_m,
-        s = cdc_wt_s,
-        csdpos = cdc_wt_csd_pos,
-        csdneg = cdc_wt_csd_neg
-      )
-    ),
-    with(
-      growth_cdc_ext,
-      data.frame(
-        src = 'CDC',
-        param = 'HEIGHTCM',
-        sex,
-        age = agedays,
-        l = cdc_ht_l,
-        m = cdc_ht_m,
-        s = cdc_ht_s,
-        csdpos = cdc_ht_csd_pos,
-        csdneg = cdc_ht_csd_neg
-      )
-    ),
-    with(
-      growth_cdc_ext,
-      data.frame(
-        src = 'CDC',
-        param = 'BMI',
-        sex,
-        age = agedays,
-        l = cdc_bmi_l,
-        m = cdc_bmi_m,
-        s = cdc_bmi_s,
-        csdpos = cdc_bmi_csd_pos,
-        csdneg = cdc_bmi_csd_neg
+  l <- if (!prelim_infants){
+    list(
+      with(
+        read.table(gzfile(weianthro_path), header = TRUE),
+        data.frame(
+          src = 'WHO',
+          param = 'WEIGHTKG',
+          sex = sex - 1,
+          age,
+          l,
+          m,
+          s,
+          csdpos = as.double(NA),
+          csdneg = as.double(NA)
+        )
+      ),
+      with(
+        read.table(gzfile(lenanthro_path), header = TRUE),
+        data.frame(
+          src = 'WHO',
+          param = 'HEIGHTCM',
+          sex = sex - 1,
+          age,
+          l,
+          m,
+          s,
+          csdpos = as.double(NA),
+          csdneg = as.double(NA)
+        )
+      ),
+      with(
+        read.table(gzfile(bmianthro_path), header = TRUE),
+        data.frame(
+          src = 'WHO',
+          param = 'BMI',
+          sex = sex - 1,
+          age,
+          l,
+          m,
+          s,
+          csdpos = as.double(NA),
+          csdneg = as.double(NA)
+        )
+      ),
+      with(
+        growth_cdc_ext,
+        data.frame(
+          src = 'CDC',
+          param = 'WEIGHTKG',
+          sex,
+          age = agedays,
+          l = cdc_wt_l,
+          m = cdc_wt_m,
+          s = cdc_wt_s,
+          csdpos = cdc_wt_csd_pos,
+          csdneg = cdc_wt_csd_neg
+        )
+      ),
+      with(
+        growth_cdc_ext,
+        data.frame(
+          src = 'CDC',
+          param = 'HEIGHTCM',
+          sex,
+          age = agedays,
+          l = cdc_ht_l,
+          m = cdc_ht_m,
+          s = cdc_ht_s,
+          csdpos = cdc_ht_csd_pos,
+          csdneg = cdc_ht_csd_neg
+        )
+      ),
+      with(
+        growth_cdc_ext,
+        data.frame(
+          src = 'CDC',
+          param = 'BMI',
+          sex,
+          age = agedays,
+          l = cdc_bmi_l,
+          m = cdc_bmi_m,
+          s = cdc_bmi_s,
+          csdpos = cdc_bmi_csd_pos,
+          csdneg = cdc_bmi_csd_neg
+        )
       )
     )
-  )
+  } else {
+    list(
+      with(
+        read.csv(gzfile(weianthro_path), header = TRUE),
+        data.frame(
+          src = 'WHO',
+          param = 'WEIGHTKG',
+          sex,
+          age = agedays,
+          l = who_wt_l,
+          m = who_wt_m,
+          s = who_wt_s,
+          csdpos = who_wt_csd_pos,
+          csdneg =  who_wt_csd_neg
+        )
+      ),
+      with(
+        read.csv(gzfile(lenanthro_path), header = TRUE),
+        data.frame(
+          src = 'WHO',
+          param = 'HEIGHTCM',
+          sex,
+          age = agedays,
+          l = who_ht_l,
+          m = who_ht_m,
+          s = who_ht_s,
+          csdpos = who_ht_csd_pos,
+          csdneg =  who_ht_csd_neg
+        )
+      ),
+      with(
+        read.csv(gzfile(lenanthro_path), header = TRUE),
+        data.frame(
+          src = 'WHO',
+          param = 'HEADCM',
+          sex,
+          age = agedays,
+          l = who_hc_l,
+          m = who_hc_m,
+          s = who_hc_s,
+          csdpos = who_hc_csd_pos,
+          csdneg =  who_hc_csd_neg
+        )
+      ),
+      with(
+        read.csv(gzfile(bmianthro_path), header = TRUE),
+        data.frame(
+          src = 'WHO',
+          param = 'BMI',
+          sex,
+          age = agedays,
+          l = who_bmi_l,
+          m = who_bmi_m,
+          s = who_bmi_s,
+          csdpos = who_bmi_csd_pos,
+          csdneg =  who_bmi_csd_neg
+        )
+      ),
+      with(
+        growth_cdc_ext,
+        data.frame(
+          src = 'CDC',
+          param = 'WEIGHTKG',
+          sex,
+          age = agedays,
+          l = cdc_wt_l,
+          m = cdc_wt_m,
+          s = cdc_wt_s,
+          csdpos = cdc_wt_csd_pos,
+          csdneg = cdc_wt_csd_neg
+        )
+      ),
+      with(
+        growth_cdc_ext,
+        data.frame(
+          src = 'CDC',
+          param = 'HEIGHTCM',
+          sex,
+          age = agedays,
+          l = cdc_ht_l,
+          m = cdc_ht_m,
+          s = cdc_ht_s,
+          csdpos = cdc_ht_csd_pos,
+          csdneg = cdc_ht_csd_neg
+        )
+      ),
+      with(
+        growth_cdc_ext,
+        data.frame(
+          src = 'CDC',
+          param = 'HEADCM',
+          sex,
+          age = agedays,
+          l = cdc_hc_l,
+          m = cdc_hc_m,
+          s = cdc_hc_s,
+          csdpos = cdc_hc_csd_pos,
+          csdneg = cdc_hc_csd_neg
+        )
+      ),
+      with(
+        growth_cdc_ext,
+        data.frame(
+          src = 'CDC',
+          param = 'BMI',
+          sex,
+          age = agedays,
+          l = cdc_bmi_l,
+          m = cdc_bmi_m,
+          s = cdc_bmi_s,
+          csdpos = cdc_bmi_csd_pos,
+          csdneg = cdc_bmi_csd_neg
+        )
+      )
+    )
+  }
 
   anthro <- rbindlist(l)
 
@@ -851,7 +1421,7 @@ read_anthro <- function(path = "", cdc.only = FALSE) {
   return(function(param, agedays, sex, measurement, csd = FALSE) {
     # For now, we will only use CDC growth reference data, note that the cubically interpolated file
     # we are using has linear measurments derived from length data for children < 731 days, and height thereafter
-    src <- ifelse(agedays < 731 & !cdc.only, 'WHO', 'CDC')
+    src <- ifelse(agedays < 3*365.25 & !cdc.only, 'WHO', 'CDC')
 
     # keep column sequence the same fo efficient join
     dt <- data.table(src, param, sex, agedays, measurement)
