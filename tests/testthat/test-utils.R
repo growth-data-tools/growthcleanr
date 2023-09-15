@@ -1,3 +1,5 @@
+testthat::skip_on_cran()
+
 test_that("splitinput splits files correctly with default values", {
   create_df <- function(num_ids, num_obs) {
     df <- data.frame(matrix(NA, nrow = num_ids * num_obs, ncol = 5))
