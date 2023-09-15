@@ -1084,9 +1084,10 @@ acf_answers <- function(subjid,
 #' @rawNamespace import(dplyr, except = c(last, first, summarize, src, between))
 #' @import data.table
 #' @examples
+#' \donttest{
 #' # Run on a small subset of given data
 #' df <- as.data.frame(syngrowth)
-#' df <- df[df$subjid %in% unique(df[, "subjid"])[1:5], ]
+#' df <- df[df$subjid %in% unique(df[, "subjid"])[1:2], ]
 #' clean_df <- cbind(df,
 #'                   "gcr_result" = cleangrowth(df$subjid,
 #'                                              df$param,
@@ -1101,6 +1102,7 @@ acf_answers <- function(subjid,
 #'                                 sex = clean_df$sex,
 #'                                 measurement = clean_df$measurement,
 #'                                 orig.exclude = clean_df$gcr_result)
+#' }
 adjustcarryforward <- function(subjid,
                                param,
                                agedays,

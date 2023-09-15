@@ -1161,12 +1161,14 @@ cleangrowth <- function(subjid,
 #' @import data.table
 #' @importFrom utils read.csv read.table
 #' @examples
+#' \donttest{
 #' # Return calculating function with all defaults
 #' afunc <- read_anthro()
 #'
 #' # Return calculating function while specifying a path and using only CDC data
 #' afunc <- read_anthro(path = system.file("extdata", package = "growthcleanr"),
 #'                      cdc.only = TRUE)
+#' }
 read_anthro <- function(path = "", cdc.only = FALSE, prelim_infants = FALSE) {
   # avoid "no visible bindings" warning
   src <- param <- sex <- age <- ret <- m <- NULL

@@ -25,7 +25,7 @@ output from longwide().
 # Simple usage
 # Run on a small subset of given data
 df <- as.data.frame(syngrowth)
-df <- df[df$subjid \%in\% unique(df[, "subjid"])[1:5], ]
+df <- df[df$subjid \%in\% unique(df[, "subjid"])[1:2], ]
 df <- cbind(df,
             "gcr_result" = cleangrowth(df$subjid,
                                        df$param,

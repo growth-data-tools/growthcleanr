@@ -104,9 +104,10 @@ adjustcarryforward
 excluded as carried forward values for reinclusion.
 }
 \examples{
+\donttest{
 # Run on a small subset of given data
 df <- as.data.frame(syngrowth)
-df <- df[df$subjid \%in\% unique(df[, "subjid"])[1:5], ]
+df <- df[df$subjid \%in\% unique(df[, "subjid"])[1:2], ]
 clean_df <- cbind(df,
                   "gcr_result" = cleangrowth(df$subjid,
                                              df$param,
@@ -121,4 +122,5 @@ adj_clean <- adjustcarryforward(subjid = clean_df$subjid,
                                 sex = clean_df$sex,
                                 measurement = clean_df$measurement,
                                 orig.exclude = clean_df$gcr_result)
+}
 }
