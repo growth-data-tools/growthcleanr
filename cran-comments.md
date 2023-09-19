@@ -1,3 +1,54 @@
+# CRAN submission growthcleanr 2.2.0 (1)
+
+## R CMD check results
+There were no ERRORs or WARNINGs.
+
+There was one NOTE:
+
+❯ checking installed package size ... NOTE
+    installed size is  5.9Mb
+    sub-directories of 1Mb or more:
+      extdata   5.0Mb
+      
+extdata has been compressed as much as possible -- data in that folder is necessary to run the package.
+
+## Downstream dependencies
+There are currently no downstream dependencies for this package.
+
+## CRAN test
+
+We have addressed each of the notes in the test as noted below:
+
+* Maintainer: ‘Carrie Daymont <cdaymont@pennstatehealth.psu.edu>’
+
+Size of tarball: 5529529 bytes
+
+The package has been compressed as much as possible, as noted above -- data included is necessary to run the package.
+
+* NOTE
+Examples with CPU (user + system) or elapsed time > 5s
+                    user system elapsed
+ext_bmiz           6.911  0.120   0.925
+simple_bmi         6.740  0.167   0.783
+adjustcarryforward 6.494  0.140   1.179
+longwide           5.072  0.135   0.834
+Examples with CPU time > 2.5 times elapsed time
+                    user system elapsed ratio
+simple_bmi         6.740  0.167   0.783 8.821
+read_anthro        2.323  0.060   0.276 8.634
+ext_bmiz           6.911  0.120   0.925 7.601
+longwide           5.072  0.135   0.834 6.243
+adjustcarryforward 6.494  0.140   1.179 5.627
+
+Examples have been reduced in length or set to donttest.
+
+*   Running ‘testthat.R’ [230s/74s]
+Running R code in ‘testthat.R’ had CPU time 3.1 times elapsed time
+
+Tests have been set to not run on CRAN.
+
+# Previous Submissions
+
 # CRAN submission growthcleanr 2.2.0
 
 ## R CMD check results
@@ -14,8 +65,6 @@ extdata has been compressed as much as possible -- data in that folder is necess
 
 ## Downstream dependencies
 There are currently no downstream dependencies for this package.
-
-# Previous Submissions
 
 # CRAN submission growthcleanr 2.1.1
 

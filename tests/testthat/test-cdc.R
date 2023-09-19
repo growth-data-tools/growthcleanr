@@ -1,3 +1,5 @@
+testthat::skip_on_cran()
+
 test_that("ext_bmiz produces comparable output to CDC SAS implementation", {
   # run ext_bmiz on input data
   mydatapath <-

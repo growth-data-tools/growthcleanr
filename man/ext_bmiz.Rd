@@ -89,6 +89,7 @@ in this package for convenience. If you are developing this package, use
 directory if necessary.
 }
 \examples{
+\donttest{
 # Run on a small subset of given data
 df <- as.data.frame(syngrowth)
 df <- df[df$subjid \%in\% unique(df[, "subjid"])[1:5], ]
@@ -113,4 +114,5 @@ df_bmiz <- ext_bmiz(dfc, age="agemos", wt="weightkg", ht="heightcm")
 # Disabling conversion of all-integer age in months to (age + 0.5)
 dfc <- simple_bmi(df_wide)
 df_bmiz <- ext_bmiz(dfc, adjust.integer.age=FALSE)
+}
 }

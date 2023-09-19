@@ -1,3 +1,5 @@
+testthat::skip_on_cran()
+
 test_that("growthcleanr works as expected on pediatric synthetic data", {
 
   # Run cleangrowth() on syngrowth data

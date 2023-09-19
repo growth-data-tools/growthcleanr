@@ -109,6 +109,7 @@ set_cols_first <- function(DT, cols, intersection = TRUE)
 #' @importFrom stats approx pnorm qnorm
 #' @rawNamespace import(R.utils, except = c(extract))
 #' @examples
+#' \donttest{
 #' # Run on a small subset of given data
 #' df <- as.data.frame(syngrowth)
 #' df <- df[df$subjid %in% unique(df[, "subjid"])[1:5], ]
@@ -133,6 +134,7 @@ set_cols_first <- function(DT, cols, intersection = TRUE)
 #' # Disabling conversion of all-integer age in months to (age + 0.5)
 #' dfc <- simple_bmi(df_wide)
 #' df_bmiz <- ext_bmiz(dfc, adjust.integer.age=FALSE)
+#' }
 ext_bmiz <- function (data,
                       age = "agem",
                       wt = "wt",
