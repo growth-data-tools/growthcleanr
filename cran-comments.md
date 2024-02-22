@@ -1,3 +1,44 @@
+# CRAN submission growthcleanr 2.2.0 (2)
+
+## R CMD check results
+There were no ERRORs or WARNINGs.
+
+There was one NOTE:
+
+❯ checking installed package size ... NOTE
+    installed size is  5.9Mb
+    sub-directories of 1Mb or more:
+      extdata   5.0Mb
+      
+extdata has been compressed as much as possible -- data in that folder is necessary to run the package.
+
+## Downstream dependencies
+There are currently no downstream dependencies for this package.
+
+## CRAN test
+
+We have addressed each of the notes in the test as noted below:
+
+*   Maintainer: 'Carrie Daymont <cdaymont@pennstatehealth.psu.edu>'
+  
+  Size of tarball: 5529566 bytes
+
+The package has been compressed as much as possible, as noted above -- data included is necessary to run the package.
+
+* NOTE
+  Examples with CPU (user + system) or elapsed time > 5s
+              user system elapsed
+  simple_bmi 6.542  0.218   0.622
+  longwide   6.344  0.230   0.858
+  Examples with CPU time > 2.5 times elapsed time
+              user system elapsed  ratio
+  simple_bmi 6.542  0.218   0.622 10.868
+  longwide   6.344  0.230   0.858  7.662
+
+Examples have been set to donttest.
+
+# Previous Submissions
+
 # CRAN submission growthcleanr 2.2.0 (1)
 
 ## R CMD check results
@@ -46,8 +87,6 @@ Examples have been reduced in length or set to donttest.
 Running R code in ‘testthat.R’ had CPU time 3.1 times elapsed time
 
 Tests have been set to not run on CRAN.
-
-# Previous Submissions
 
 # CRAN submission growthcleanr 2.2.0
 
