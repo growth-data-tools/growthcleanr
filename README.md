@@ -46,6 +46,12 @@ To install the stable version from CRAN:
 ``` r
 install.packages("growthcleanr")
 ```
+Or from Github directly:
+
+``` r
+library(devtools)
+install_github("carriedaymont/growthcleanr")
+```
 
 ## Summary
 
