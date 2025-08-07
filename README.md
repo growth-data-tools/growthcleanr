@@ -39,6 +39,10 @@ up to age 65. The adult algorithm has not yet been published in a
 peer-reviewed publication, but is described in detail at [Adult
 algorithm](https://carriedaymont.github.io/growthcleanr/articles/adult-algorithm.html).
 
+## Bug and current fix
+
+There is an error in the recentering tables in the current CRAN version that will causes the algorithm to inappropriately exclude birth observations in datasets with <5K observations. Until we are able to make changes on CRAN, we recommend using devtools to install growthcleanr from GitHub. We are working on updates as soon as possible.
+
 ## Installation
 
 To install the stable version from CRAN:
