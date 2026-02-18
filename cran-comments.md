@@ -10,6 +10,8 @@ This is a resubmission to address "no visible binding for global variable" notes
 - Added `rlang` to Imports for `.data` pronoun support
 - Fixed a recentering table that had erroneously caused birth measurements to be excluded in small datasets
 - Updated test expectations to reflect corrected behavior
+- Resolved remaining "no visible binding" note for `id` variable in data.table operations
+- Updated broken CDC SAS program URL to current location
 - No changes to user-facing API or package functionality
 
 ## R CMD check results
@@ -28,6 +30,7 @@ extdata has been compressed as much as possible -- data in that folder is necess
 ## Test environments
 
 - local macOS (aarch64-apple-darwin20), R 4.5.2
+- win-builder (x86_64-w64-mingw32), R-devel (2026-02-16 r89426 ucrt)
 
 ## Downstream dependencies
 

@@ -43,7 +43,7 @@ differ only for children who have a BMI > 95th percentile.
 }
 \details{
 This function should produce output equivalent to the SAS macro provided at
-https://www.cdc.gov/nccdphp/dnpao/growthcharts/resources/sas.htm. The macro
+https://www.cdc.gov/growth-chart-training/hcp/computer-programs/sas.html. The macro
 was updated in December, 2022, according to the findings of the NCHS
 report available at https://dx.doi.org/10.15620/cdc:121711. This function has
 been updated to match it as of growthcleanr v2.1.0.
@@ -83,7 +83,7 @@ If the parameter \code{adjust.integer.age} is \code{TRUE} (the default),
 \code{FALSE} to disable.
 
 By default, the reference data file \code{CDCref_d.csv}, made available at
-https://www.cdc.gov/nccdphp/dnpao/growthcharts/resources/sas.htm, is included
+https://www.cdc.gov/growth-chart-training/hcp/computer-programs/sas.html, is included
 in this package for convenience. If you are developing this package, use
 \code{ref.data.path} to adjust the path to this file from your working
 directory if necessary.

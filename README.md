@@ -31,7 +31,7 @@ published with that paper.
 
 This package also includes an R version of the [SAS macro published by
 the
-CDC](https://www.cdc.gov/nccdphp/dnpao/growthcharts/resources/sas.htm)
+CDC](https://www.cdc.gov/growth-chart-training/hcp/computer-programs/sas.html)
 for calculating percentiles and Z-scores of pediatric growth
 observations and utilities for working with both functions. As of summer
 2021, it also supports cleaning anthropometric measurements for adults

@@ -39,7 +39,7 @@ input data vectors needed for cleaning data are:
 3. `agedays` - a numeric value for age in days at time of measurement; will be
    rounded down (floor) to nearest integer if needed (note that there are
    30.4375 days in one month; see also the additional
-   [notes on calculating `agemos`](https://www.cdc.gov/nccdphp/dnpao/growthcharts/resources/sas.htm)
+   [notes on calculating `agemos`](https://www.cdc.gov/growth-chart-training/hcp/computer-programs/sas.html)
    from whole numbers of months
 4. `sex` - a numeric value of `0` (male) or `1` (female)
 5. `measurement` - numeric value of measurement in cm for height or kg for

@@ -6,6 +6,8 @@
 - Added explicit `rlang` dependency for `.data` pronoun support
 - Fixed recentering table that had previously erroneously caused birth measurements to be excluded in small datasets
 - Updated test expectations to reflect corrected recentering behavior
+- Resolved remaining "no visible binding" note for `id` variable in data.table operations
+- Updated broken CDC SAS program URL to current location
 
 # growthcleanr 2.2.0-prelim-infants - 2023-09-13
 

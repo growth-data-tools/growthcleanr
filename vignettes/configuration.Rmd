@@ -173,7 +173,7 @@ from children and adolescents between the ages of 0 months and <240 months.
 Weight and height SD scores were calculated from the [L, M, and S
 parameters](https://www.cdc.gov/growthcharts/percentile_data_files.htm) for the
 [CDC growth
-charts](https://www.cdc.gov/nccdphp/dnpao/growthcharts/resources/sas.htm) were
+charts](https://www.cdc.gov/growth-chart-training/hcp/computer-programs/sas.html) were
 used as the reference to calculate weight and height SD scores for the NHANES
 2009-2010 through 2017-2018 samples. Based on the distributions of age-days in
 children at 0 months, an age adjustment was made based on the median number of

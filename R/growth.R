@@ -163,7 +163,7 @@ cleangrowth <- function(subjid,
   newbatch <- sd.median <- sd.orig <- tanner.months <- tbc.sd <- NULL
   v <- v_adult <- whoagegrp.ht <- whoagegrp_ht <- z.orig <- NULL
   z.orig_cdc <- z.orig_who <- sd.orig_cdc <- sd.orig_who <- NULL
-  result <- NULL
+  id <- result <- NULL
 
   sd.orig_uncorr <- agemonths <- intwt <- fengadays <- pmagedays <- cagedays <-
     unmod_zscore <- fen_wt_m <- fen_wt_l <- fen_wt_s <- cwho_cv <- ccdc_cv <-
