@@ -1,7 +1,7 @@
 Package: growthcleanr
 Type: Package
 Title: Data Cleaner for Anthropometric Measurements
-Version: 2.2.0
+Version: 2.2.1
 Authors@R: c(
     person("Carrie", "Daymont", email = "cdaymont@pennstatehealth.psu.edu", role = c("ctb","cre")),
     person("Robert", "Grundmeier", role = "aut"),
@@ -33,7 +33,8 @@ Imports:
     foreach (>= 1.5.0),
     doParallel (>= 1.0.15),
     labelled (>= 2.5.0),
-    magrittr (>= 1.5)
+    magrittr (>= 1.5),
+    rlang (>= 0.4.0)
 Depends:
     R (>= 2.10)
 License: MIT + file LICENSE
@@ -46,4 +47,4 @@ Suggests:
     knitr (>= 1.29),
     rmarkdown (>= 2.3),
     testthat (>= 2.3.2)
-RoxygenNote: 7.2.3
+RoxygenNote: 7.3.3

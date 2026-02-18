@@ -1179,12 +1179,12 @@ adjustcarryforward <- function(subjid,
   # NEW EDIT --
   # remove all the weight measurements
   data.all <- data.all %>%
-    filter(param %in% c("HEIGHTCM", "LENGTHCM"))
+    filter(.data$param %in% c("HEIGHTCM", "LENGTHCM"))
 
   # filter to only subjects with possible carried forwards - n is here to merge back
   # if they have all includes, filter them out
   data.all <- data.all %>%
-    filter(subjid %in% data.all$subjid[data.all$orig.exclude == "Exclude-Carried-Forward"]) %>%
+    filter(.data$subjid %in% data.all$subjid[data.all$orig.exclude == "Exclude-Carried-Forward"]) %>%
     as.data.table()
 
   # here's what we want to filter out -- anything that's not carried forward/include
@@ -1219,7 +1219,7 @@ adjustcarryforward <- function(subjid,
 
   # filter to only subjects with possible carried forwards again
   data.all <- data.all %>%
-    filter(subjid %in% data.all$subjid[data.all$orig.exclude == "Exclude-Carried-Forward"]) %>%
+    filter(.data$subjid %in% data.all$subjid[data.all$orig.exclude == "Exclude-Carried-Forward"]) %>%
     as.data.table()
 
   ### END EDIT ####
@@ -1801,7 +1801,7 @@ adjustcarryforward <- function(subjid,
   return(rbind(
     acf_df,
     data.frame(
-      filter(data.orig,!n %in% data.all$n) %>% mutate(adjustcarryforward = "Not Considered")  %>% select(adjustcarryforward, n)
+      filter(data.orig, !.data$n %in% data.all$n) %>% mutate(adjustcarryforward = "Not Considered")  %>% select("adjustcarryforward", "n")
     )
   ))
 }

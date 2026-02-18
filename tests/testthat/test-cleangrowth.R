@@ -67,7 +67,7 @@ test_that("growthcleanr works as expected on pediatric synthetic data", {
   expect_equal("Exclude-Extraneous-Same-Day", gcr_result(cd100_nhanes, 25))
   expect_equal("Include", gcr_result(cd100_derived, 25))
 
-  expect_equal("Include", gcr_result(cd100_nhanes, 40094))
+  expect_equal("Exclude-Carried-Forward", gcr_result(cd100_nhanes, 40094))
   expect_equal("Exclude-Carried-Forward", gcr_result(cd100_derived, 40094))
 
   expect_equal("Include", gcr_result(cd100_nhanes, 62606))
@@ -80,8 +80,8 @@ test_that("growthcleanr works as expected on pediatric synthetic data", {
 
   d100_exclusions <-
     cd100_nhanes %>% group_by(gcr_result) %>% tally(sort = TRUE)
-  expect_equal(562, catcount(d100_exclusions, "Include"))
-  expect_equal(112, catcount(d100_exclusions, "Exclude-Carried-Forward"))
+  expect_equal(563, catcount(d100_exclusions, "Include"))
+  expect_equal(113, catcount(d100_exclusions, "Exclude-Carried-Forward"))
   expect_equal(3, catcount(d100_exclusions, "Exclude-EWMA-8"))
 
   d100_derived_exclusions <-

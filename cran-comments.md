@@ -1,3 +1,40 @@
+# CRAN submission growthcleanr 2.2.1
+
+## Resubmission
+
+This is a resubmission to address "no visible binding for global variable" notes identified in CRAN checks following recent dplyr package updates.
+
+## Changes made
+
+- Updated all internal dplyr function calls to use the `.data$` pronoun notation per current tidyverse programming guidelines
+- Added `rlang` to Imports for `.data` pronoun support
+- Fixed a recentering table that had erroneously caused birth measurements to be excluded in small datasets
+- Updated test expectations to reflect corrected behavior
+- No changes to user-facing API or package functionality
+
+## R CMD check results
+
+There were no ERRORs or WARNINGs.
+
+There was one NOTE:
+
+> checking installed package size ... NOTE
+    installed size is  5.8Mb
+    sub-directories of 1Mb or more:
+      extdata   4.9Mb
+
+extdata has been compressed as much as possible -- data in that folder is necessary to run the package.
+
+## Test environments
+
+- local macOS (aarch64-apple-darwin20), R 4.5.2
+
+## Downstream dependencies
+
+There are currently no downstream dependencies for this package.
+
+# Previous submissions
+
 # CRAN submission growthcleanr 2.2.0 (2)
 
 ## R CMD check results

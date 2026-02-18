@@ -109,7 +109,7 @@ exec_sweep <- function(grid_df,
     if (index == 1) {
       combo <- export
     } else {
-      combo <- merge(combo, out, by = "n", all = TRUE) # %>% select(-n)
+      combo <- merge(combo, out, by = "n", all = TRUE) # %>% select(-"n")
     }
   }
 
@@ -340,7 +340,7 @@ testacf <- function(
 
   if (writeout){
     # Combined adjusted set
-    fwrite(combo %>% select(-n), paste0(outfile, ".csv"), row.names = FALSE)
+    fwrite(combo %>% select(-"n"), paste0(outfile, ".csv"), row.names = FALSE)
 
     # Record the sweep parameters for review
     grid <- cbind("run" = 1:nrow(grid_df), grid_df)
@@ -360,7 +360,7 @@ testacf <- function(
 
   out_list <- list(
     # Combined adjusted set
-    "testacf_res" = combo %>% select(-n),
+    "testacf_res" = combo %>% select(-"n"),
     "params" = cbind("run" = 1:nrow(grid_df), grid_df)
   )
 

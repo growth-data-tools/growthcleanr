@@ -173,6 +173,7 @@ recode_sex <- function(input_data,
 #' be dropped unless keep_unmatched_data is set to TRUE.
 #'
 #' @export
+#' @importFrom rlang .data
 #' @rawNamespace import(tidyr, except = extract)
 #' @rawNamespace import(dplyr, except = c(last, first, summarize, src, between))
 #' @examples
@@ -208,15 +209,12 @@ longwide <-
            inclusion_types = c("Include"),
            extra_cols = NULL,
            keep_unmatched_data = FALSE) {
-    # avoid "no visible binding" warnings
-    sex_recoded <- agey <- agem <- HEIGHTCM <- WEIGHTKG <- NULL
-    wt <- wt_id <- ht <- ht_id <- NULL
 
     # check that all needed columns are present, if not, throw an error.
     if(all(c(id, subjid, sex, agedays, param, measurement, gcr_result,
              extra_cols) %in% colnames(long_df))) {
       long_df %>%
-        select(id, subjid, sex, agedays, param, measurement, all_of(gcr_result),
+        select("id", "subjid", "sex", "agedays", "param", "measurement", all_of(gcr_result),
                all_of(extra_cols)) -> obs_df
     } else {
       # catch error if any variables were not found
@@ -251,9 +249,9 @@ longwide <-
     )
 
     obs_df %>%
-      mutate(sex = sex_recoded) %>%
-      mutate(param = as.character(param)) %>%
-      select(subjid, id, agey, agem, agedays, sex, param, measurement,
+      mutate(sex = .data$sex_recoded) %>%
+      mutate(param = as.character(.data$param)) %>%
+      select("subjid", "id", "agey", "agem", "agedays", "sex", "param", "measurement",
              all_of(extra_cols)) -> clean_df
 
 
@@ -264,29 +262,29 @@ longwide <-
 
     # separate heights and weights using unique ids
     clean_df %>%
-      pivot_wider(names_from = param, values_from = measurement) -> param_separated
+      pivot_wider(names_from = "param", values_from = "measurement") -> param_separated
 
     # extract heights and weights attached to ids
     param_separated %>%
-      filter(!is.na(HEIGHTCM)) %>%
-      filter(is.na(WEIGHTKG)) %>% # why this, shouldn't the !is.na height take care of it
-      mutate(ht_id = id) %>%
-      select(-id) %>%
-      select(-WEIGHTKG) -> height
+      filter(!is.na(.data$HEIGHTCM)) %>%
+      filter(is.na(.data$WEIGHTKG)) %>% # why this, shouldn't the !is.na height take care of it
+      mutate(ht_id = .data$id) %>%
+      select(-"id") %>%
+      select(-"WEIGHTKG") -> height
 
     param_separated %>%
-      filter(is.na(HEIGHTCM)) %>%
-      filter(!is.na(WEIGHTKG)) %>%
-      mutate(wt_id = id) %>%
-      select(-id) %>%
-      select(-HEIGHTCM) -> weight
+      filter(is.na(.data$HEIGHTCM)) %>%
+      filter(!is.na(.data$WEIGHTKG)) %>%
+      mutate(wt_id = .data$id) %>%
+      select(-"id") %>%
+      select(-"HEIGHTCM") -> weight
 
     # join based on subjid, age, and sex, potentially keep unmatched values too
     wide_df <- merge(height,
                      weight,
                      by = c("subjid", "agey", "agem", "agedays", "sex"),
                      all = keep_unmatched_data) %>%
-      mutate(wt = WEIGHTKG, ht = HEIGHTCM)
+      mutate(wt = .data$WEIGHTKG, ht = .data$HEIGHTCM)
 
 
     for(col in extra_cols) {
@@ -310,7 +308,7 @@ longwide <-
     }
 
     # Drop WEIGHTKG and HEIGHTCM columns since they are in ht and wt
-    wide_df <- wide_df %>% select(-c(HEIGHTCM, WEIGHTKG))
+    wide_df <- wide_df %>% select(-c("HEIGHTCM", "WEIGHTKG"))
 
     return(wide_df)
 }

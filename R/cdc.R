@@ -261,27 +261,27 @@ ext_bmiz <- function (data,
 
   dt <- mutate(
     dt,
-    bp = 100 * pnorm(bz),
-    p95 = m * (1 + l * s * qnorm(0.95)) ^ (1 / l),
-    p97 = m * (1 + l * s * qnorm(0.97)) ^ (1 / l),
-    bmip95 = 100 * (bmi / p95),
-    wp = 100 * pnorm(waz),
-    hp = 100 * pnorm(haz),
+    bp = 100 * pnorm(.data$bz),
+    p95 = .data$m * (1 + .data$l * .data$s * qnorm(0.95)) ^ (1 / .data$l),
+    p97 = .data$m * (1 + .data$l * .data$s * qnorm(0.97)) ^ (1 / .data$l),
+    bmip95 = 100 * (.data$bmi / .data$p95),
+    wp = 100 * pnorm(.data$waz),
+    hp = 100 * pnorm(.data$haz),
 
     # other BMI metrics -- PMID 31439056
-    z1 = ((bmi / m) - 1) / s,
+    z1 = ((.data$bmi / .data$m) - 1) / .data$s,
     # LMS formula when L=1: ((BMI/M)-1)/S
-    dist1 = z1 * m * s,
+    dist1 = .data$z1 * .data$m * .data$s,
     # unadjusted distance from median
-    adist1 = z1 * sref * mref,
+    adist1 = .data$z1 * .data$sref * .data$mref,
     # Adjusted (to age 20y) dist from median
-    perc1 = z1 * 100 * s,
+    perc1 = .data$z1 * 100 * .data$s,
     # unadjusted %distance from median
-    aperc1 = z1 * 100 * sref,
+    aperc1 = .data$z1 * 100 * .data$sref,
     # adj %distance from median
 
-    obese = 1L * (bmi >= p95),
-    sev_obese = 1L * (bmip95 >= 120)
+    obese = 1L * (.data$bmi >= .data$p95),
+    sev_obese = 1L * (.data$bmip95 >= 120)
   ) %>% setDT()
 
   # now create Extended z-score for BMI >=95th P
