@@ -1,3 +1,13 @@
+# CRAN submission growthcleanr 2.2.2
+
+## Resubmission
+
+This is a resubmission shortly after the submission of 2.2.1, which has been reviewed.
+No changes were made to code in this version.
+
+## Changes made
+- Removed an outdated statement in the README.md file.
+
 # CRAN submission growthcleanr 2.2.1
 
 ## Resubmission
