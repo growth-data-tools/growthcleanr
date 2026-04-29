@@ -1595,15 +1595,21 @@ sd_median <- function(param, sex, agedays, sd.orig) {
   dt[ageyears > 19, ageyears := 19]
   dt.median <- dt[!is.na(sd.orig), list(sex = c(0, 1), sd.median = rep(median(sd.orig), 2)), by =
                    .(param, ageyears)]
-  dt.median <- dt.median[, list(
-    agedays = agedays.to.cover,
-    sd.median = approx(
-      floor((ageyears + 0.5) * 365.25),
-      sd.median,
-      xout = agedays.to.cover,
-      rule = 2
-    )$y
-  ), by = .(param, sex)]
+  dt.median <- dt.median[, {
+    x_pts <- floor((ageyears + 0.5) * 365.25)
+    y_pts <- sd.median
+    list(
+      agedays = agedays.to.cover,
+      sd.median = if (length(x_pts) < 2) {
+        # fewer than 2 age-years of data (e.g. adult_cutpoint near the
+        # minimum age in the dataset): fall back to constant recentering
+        rep(if (length(y_pts) > 0) y_pts[1] else NA_real_,
+            length(agedays.to.cover))
+      } else {
+        approx(x_pts, y_pts, xout = agedays.to.cover, rule = 2)$y
+      }
+    )
+  }, by = .(param, sex)]
   setkey(dt.median, param, sex, agedays)
   return(dt.median)
 }
