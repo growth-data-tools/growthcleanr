@@ -298,28 +298,31 @@ NULL
 #'
 NULL
 
-#' Fenton Growth Curves
+#' Fenton-Based Corrected Age Reference (Weight to GA Lookup)
 #'
-#' Fenton growth curves with premature infant data with sex, age, and integer
-#' weight
+#' Approximated reference values for premature infant corrected-age estimation, derived from
+#' data extracted from printed Fenton (2025) growth charts. Provides a
+#' reverse lookup from integer weight (grams, rounded to 10) to estimated
+#' gestational age in days, by sex.
 #'
-#' @name fent_foraga
+#' @name fent_for_corraga
 #'
-#' @section fent_foraga.csv.gz:
+#' @section fent_for_corraga.csv.gz:
 #'
 #' Used in function `cleangrowth()`
 #'
 #'
 NULL
 
-#' Fenton Growth Curve Z-Scores
+#' Fenton-Based Corrected Z-Score Reference
 #'
-#' Fenton growth curves with premature infant z-scores for height and head
-#'circumference
+#' Approximated reference values for premature infant corrected z-score calculation, derived
+#' from data extracted from printed Fenton (2025) growth charts. Allows determination of approximate
+#' z-scores by gestational age and sex.
 #'
-#' @name fent_forz
+#' @name fent_for_corrz
 #'
-#' @section fent_forz.csv.gz:
+#' @section fent_for_corrz.csv.gz:
 #'
 #' Used in function `cleangrowth()`
 #'

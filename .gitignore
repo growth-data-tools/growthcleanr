@@ -49,3 +49,6 @@ output
 .Rprofile
 docs/reference/*.csv
 docs/reference/*.log
+
+# Internal data-raw scripts not for distribution
+data-raw/make_corr_lms.R

@@ -1,3 +1,10 @@
+# growthcleanr 2.2.3 - 2026-05-03
+
+## Changed
+
+- Fixed bug affecting adult_cutpoint affecting datasets with narrow age ranges
+- Corrected a problem with reference values 
+
 # growthcleanr 2.2.2 - 2026-02-20
 
 ## Changed

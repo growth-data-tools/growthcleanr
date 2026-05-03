@@ -566,12 +566,12 @@ cleangrowth <- function(subjid,
       # want to filter out after correction
       orig_colnames <- copy(colnames(data.all))
 
-      # start by reading in fenton data
-      fent_foraga <- fread(
-        system.file(file.path("extdata", "fent_foraga.csv.gz"),
+      # start by reading in approximated fenton reference values
+      fent_for_corraga <- fread(
+        system.file(file.path("extdata", "fent_for_corraga.csv.gz"),
                     package = "growthcleanr"))
-      fent_forz <- fread(
-        system.file(file.path("extdata", "fent_forz.csv.gz"),
+      fent_for_corrz <- fread(
+        system.file(file.path("extdata", "fent_for_corrz.csv.gz"),
                     package = "growthcleanr"))
 
       # add age in months
@@ -583,12 +583,12 @@ cleangrowth <- function(subjid,
 
       # integer weight is in grams, rounded to the nearest 10
       data.all[potcorr, intwt := round(v*100)*10]
-      # replace to facilitate merging with fenton curves
+      # replace to facilitate merging with approximated Fenton reference values
       data.all[intwt >= 250 & intwt <=560, intwt := 570]
 
-      # merge with fenton curves
+      # merge with approximated Fenton reference values
       data.all <- merge(
-        data.all, fent_foraga, by = c("sex", "intwt"),
+        data.all, fent_for_corraga, by = c("sex", "intwt"),
         all.x = TRUE)
 
       data.all[fengadays < 259, pmagedays := agedays + fengadays]
@@ -596,9 +596,9 @@ cleangrowth <- function(subjid,
       # replace fengadays with pmagedays to facilitate merging
       data.all[, fengadays := pmagedays]
 
-      # merge with fenton curves
+      # merge with approximated Fenton reference values
       data.all <- merge(
-        data.all, fent_forz, by = c("sex", "fengadays"),
+        data.all, fent_for_corrz, by = c("sex", "fengadays"),
         all.x = TRUE)
 
       # add unmodified zscore using weight in unrounded grams
@@ -669,13 +669,13 @@ cleangrowth <- function(subjid,
       data.all[smooth_val,
                sd.corr := (sd.c[smooth_val]*corrweight[smooth_val] +
                              sd.orig[smooth_val]*uncorrweight[smooth_val])/2]
-      # for < 2 & potential correction, use fenton corrected score
+      # for < 2 & potential correction, use corrected score
       data.all[agedays/365.25 <= 2 & potcorr, sd.corr := sd.c]
       # for > 4, use original z score
       data.all[agedays/365.25 >= 4, sd.corr := sd.orig]
       # for not potential corrections, use the original z score
       data.all[!potcorr, sd.corr := sd.orig]
-      # if the who/fenton score is not available for any reason, use the
+      # if the who/corrected score is not available for any reason, use the
       # original
       data.all[is.na(sd.corr), sd.corr := sd.orig]
 
