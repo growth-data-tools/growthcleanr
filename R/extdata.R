@@ -305,9 +305,9 @@ NULL
 #' reverse lookup from integer weight (grams, rounded to 10) to estimated
 #' gestational age in days, by sex.
 #'
-#' @name fent_for_corraga
+#' @name ref_for_corraga
 #'
-#' @section fent_for_corraga.csv.gz:
+#' @section ref_for_corraga.csv.gz:
 #'
 #' Used in function `cleangrowth()`
 #'
@@ -320,9 +320,9 @@ NULL
 #' from data extracted from printed Fenton (2025) growth charts. Allows determination of approximate
 #' z-scores by gestational age and sex.
 #'
-#' @name fent_for_corrz
+#' @name ref_for_corrz
 #'
-#' @section fent_for_corrz.csv.gz:
+#' @section ref_for_corrz.csv.gz:
 #'
 #' Used in function `cleangrowth()`
 #'

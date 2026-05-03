@@ -567,11 +567,11 @@ cleangrowth <- function(subjid,
       orig_colnames <- copy(colnames(data.all))
 
       # start by reading in approximated fenton reference values
-      fent_for_corraga <- fread(
-        system.file(file.path("extdata", "fent_for_corraga.csv.gz"),
+      ref_for_corraga <- fread(
+        system.file(file.path("extdata", "ref_for_corraga.csv.gz"),
                     package = "growthcleanr"))
-      fent_for_corrz <- fread(
-        system.file(file.path("extdata", "fent_for_corrz.csv.gz"),
+      ref_for_corrz <- fread(
+        system.file(file.path("extdata", "ref_for_corrz.csv.gz"),
                     package = "growthcleanr"))
 
       # add age in months
@@ -588,7 +588,7 @@ cleangrowth <- function(subjid,
 
       # merge with approximated Fenton reference values
       data.all <- merge(
-        data.all, fent_for_corraga, by = c("sex", "intwt"),
+        data.all, ref_for_corraga, by = c("sex", "intwt"),
         all.x = TRUE)
 
       data.all[fengadays < 259, pmagedays := agedays + fengadays]
@@ -598,7 +598,7 @@ cleangrowth <- function(subjid,
 
       # merge with approximated Fenton reference values
       data.all <- merge(
-        data.all, fent_for_corrz, by = c("sex", "fengadays"),
+        data.all, ref_for_corrz, by = c("sex", "fengadays"),
         all.x = TRUE)
 
       # add unmodified zscore using weight in unrounded grams
