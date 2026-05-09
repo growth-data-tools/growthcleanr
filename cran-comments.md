@@ -1,3 +1,32 @@
+# CRAN submission growthcleanr 2.2.3
+
+## Changes made
+
+- Fixed a crash in `sd_median()` when `adult_cutpoint` leaves fewer than 2 pediatric age-years in the dataset
+- Corrected reference values used for gestational-age correction in the preliminary infants algorithm 
+
+## R CMD check results
+
+There were no ERRORs or WARNINGs.
+
+There was one NOTE:
+
+> checking installed package size ... NOTE
+    installed size is  5.8Mb
+    sub-directories of 1Mb or more:
+      extdata   4.9Mb
+
+extdata has been compressed as much as possible — data in that folder is necessary to run the package.
+
+## Test environments
+
+- local macOS (aarch64-apple-darwin20), R 4.5.2
+- GitHub Actions: macOS (R release), Windows (R release), Ubuntu (R devel, R release, R oldrel-1)
+
+## Downstream dependencies
+
+There are currently no downstream dependencies for this package.
+
 # CRAN submission growthcleanr 2.2.2
 
 ## Resubmission
