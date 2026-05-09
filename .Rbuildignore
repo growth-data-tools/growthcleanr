@@ -18,3 +18,4 @@ cran-comments.md
 ^LICENSE\.md$
 ^vignettes$
 .DS_Store
+^\.git$
