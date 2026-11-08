@@ -9,17 +9,15 @@ growthcleanr 3.0.0 includes substantial updates to the child (previously referre
 ## Test environments
 
 * local: macOS 26 (aarch64), R 4.5.2
-* win-builder: Windows Server 2022, R-devel (r90836)
+* win-builder: Windows Server 2022, R-devel (r90850) and R-release (4.6.2)
+* mac-builder: macOS 26.6 (aarch64), R 4.6.1 Patched (r90311)
 * GitHub Actions: ubuntu-latest, R release and R oldrel-1
 
 ## R CMD check results
 
 0 errors | 0 warnings | 1 note
 
-The note, from `checking CRAN incoming feasibility`, has two parts:
-
-* Possibly misspelled words in DESCRIPTION: 'Daymont', 'et', and 'al'. These are the author name and citation form in the reference to Daymont et al. 2017, which is cited by DOI (`https://doi.org/10.1093/jamia/ocx037`).
-* 404s for seven growthcleanr.org addresses. These pages are part of the 3.0.0 website, which goes live when 3.0.0 is pushed to the public GitHub repository, before this submission.
+The note, from `checking CRAN incoming feasibility` on win-builder, lists possibly misspelled words in DESCRIPTION: 'Daymont', 'et', and 'al'. These are the author name and citation form in the reference to Daymont et al. 2017, which is cited by DOI (`https://doi.org/10.1093/jamia/ocx037`).
 
 ## Reverse dependencies
 
