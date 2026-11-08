@@ -1,5 +1,3 @@
-<img src="growthcleanr-logo.png" alt="growthcleanr" style="max-width:360px; width:70%; height:auto; margin:0 0 1.25rem;">
-
 An open-source R package that flags implausible values in longitudinal pediatric and adult weight, height, and head circumference data.
 
 ::: {.alert .alert-info}

@@ -1,7 +1,10 @@
 // growthcleanr home-page brand accents (first pass; verify selectors against the built HTML)
 
-// Purple section headings on the home page
-.template-home main h2 { color: #A35ABD; }
+// The wordmark makes the fixed navbar taller than pkgdown's 56px main offset; keep the home page's first line clear of it.
+.template-home main { padding-top: 1.25rem; }
+
+// Navy section headings on the home page (navy = #2D5DA0, from the navy logo)
+.template-home main h2 { color: #2D5DA0; }
 
 // Orange diamond bullets on the home page
 .template-home main ul { list-style: none; padding-left: 1.25rem; }
@@ -22,7 +25,7 @@
   content: "";
   display: inline-block;
   height: 1.8rem;
-  width: 10.65rem;     // matches lockup aspect ratio (846x143)
+  width: 11.76rem;     // matches lockup aspect ratio (830x127)
   background: url("../../growthcleanr-logo.png") no-repeat left center / contain;
 }
 
