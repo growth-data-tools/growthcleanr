@@ -1,0 +1,185 @@
+---
+title: "Utility functions"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Utility functions}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\usepackage[utf8]{inputenc}
+---
+
+Technical reference for the public utility functions in `utils.R` (`recode_sex()`, `longwide()`, `simple_bmi()`) and the extended BMIz functions in `cdc.R` (`ext_bmiz()` and its internal helpers `z_score()` and `set_cols_first()`).
+
+This document describes what the current R code does in the utility and extended-BMIz functions. It is intended as a debugging aid and a long-term technical reference. References to code use function names rather than line numbers, because line numbers become stale with each code edit.
+
+---
+
+## How to Read This Document
+
+These functions sit **outside** the cleaning algorithm. They do not assign exclusion codes and are never called by `cleangrowth()`, `cleanchild()`, or `cleanadult()`. They are user-facing helpers for the steps that come after cleaning: reshaping `cleangrowth()` output, and computing extended CDC BMI metrics on the cleaned data.
+
+The algorithm vignettes cover the cleaning pipeline itself. This vignette covers the surrounding toolchain.
+
+---
+
+## Scope and the post-cleaning pipeline
+
+The three utility functions plus `ext_bmiz()` form a natural workflow that takes cleaned long-format data through to extended BMI z-scores:
+
+```
+cleangrowth() output → longwide()      → wide ht/wt rows, filtered by exclusion code
+                       simple_bmi()     → adds bmi column
+                       ext_bmiz()       → extended + LMS BMIz, BMIp, sigma, etc.
+```
+
+`cleangrowth()` returns sex exactly as submitted (e.g. `M`/`F` or `0`/`1`). `longwide()` recodes it to `M`/`F`, reading the submitted codes the same way `cleangrowth()` does (the default recognized codes, or the `sex_coding` you pass), and `ext_bmiz()` reads `M`/`F` directly, so callers using the standard pipeline do not need to recode sex. `recode_sex()` is a standalone helper for recoding one explicit pair of codes to another.
+
+The functions accept either a `data.frame` or `data.table`. Several coerce to `data.table` internally for speed.
+
+---
+
+## `recode_sex()` (utils.R)
+
+**Purpose.** Recode a binary sex variable from one explicit pair of codes to another (e.g. 0/1 to `M`/`F` for `ext_bmiz()`, using `targetm = "M"` and `targetf = "F"`; `ext_bmiz()` reads only the column named `sex`, so use `targetcol = "sex"` for that). `longwide()` no longer uses it: it parses sex the way `cleangrowth()` does.
+
+**Signature.**
+
+```r
+recode_sex(input_data,
+           sourcecol = "sex",
+           sourcem   = "0",
+           sourcef   = "1",
+           targetcol = "sex_recoded",
+           targetm   = 1L,
+           targetf   = 2L)
+```
+
+**Parameters.** `sourcecol` is the existing sex column; `sourcem`/`sourcef` are the values it uses for male/female. `targetcol` is the column to write, which may be `sourcecol` itself; `targetm`/`targetf` are the values written for male/female. Defaults map `sex` 0/1 → `sex_recoded` 1/2.
+
+**Mechanics.** Coerces to `data.table`, matches `sourcecol` against `sourcem` and `sourcef`, then writes `targetcol` from those matches: `targetm`, `targetf`, or `NA` for rows matching neither value.
+
+**Output.** Returns a `data.table` with the added/updated `targetcol`. The input is not modified, and unless `targetcol` is `sourcecol` the source column is preserved, so the recode can be chained (e.g., recode back from text labels to numbers).
+
+---
+
+## `longwide()` (utils.R)
+
+**Purpose.** Transform long-format growthcleanr data (one row per measurement) into wide format (one row per subject-age with paired height and weight), filtered to the exclusion codes the caller wants to keep. This is the reshape step that prepares cleaned data for BMI computation.
+
+**Signature.**
+
+```r
+longwide(long_df,
+         id                  = "id",
+         subjid              = "subjid",
+         sex                 = "sex",
+         agedays             = "agedays",
+         param               = "param",
+         measurement         = "measurement",
+         gcr_result          = "exclude",
+         include_all         = FALSE,
+         inclusion_types     = c("Include"),
+         extra_cols          = NULL,
+         keep_unmatched_data = FALSE,
+         sex_coding          = <cleangrowth() default codes>,
+         param_coding        = NULL)
+```
+
+**Input expectations.** A long data frame with the named id/subjid/sex/agedays/param/measurement columns plus an exclusion column. The `gcr_result` default is `"exclude"`, which matches the `cleangrowth()` output column from version 3 onward — so a `cleangrowth()` result `data.table` can be passed (or merged onto the input) directly. For data with a differently named exclusion column, pass `gcr_result` explicitly. If the column is missing and the default `"exclude"` was used, the error suggests `gcr_result = "gcr_result"` (the column name 2.x scripts used).
+
+**Mechanics.**
+
+1. **Column check and renaming.** Errors if any specified column (including `extra_cols`) is absent. The six required columns are read by the names passed in `id`, `subjid`, `sex`, `agedays`, `param` and `measurement` and renamed to those internal names, so a column that merely happens to be named, say, `subjid` is never read when `subjid = "patid"` is passed. `gcr_result` and `extra_cols` may not reuse a name `longwide()` needs (a required column, or an output column such as `agey` or `ht`); that is an error.
+2. **Inclusion filter.** If `include_all = TRUE`, all rows are kept and `inclusion_types` is ignored. Otherwise only rows whose `gcr_result` is in `inclusion_types` (default `c("Include")`) are kept. An `inclusion_types` value that is not a version 3 exclusion code (Summary or Detailed, or a `bin_exclude`/`tri_exclude` value), such as the 2.x code `"Exclude-Carried-Forward"`, matches nothing, so `longwide()` warns and points to the code mapping in `vignette("experienced-start-here")`.
+3. **Derived ages.** Adds `agey` (`agedays / 365.25`, rounded to 4 places) and `agem` (`agey * 12`).
+4. **Sex recode.** Parses `sex` with the same parser `cleangrowth()` uses — the default recognized codes (0/1, m/M, f/F, b/g, male/female, boy/girl; case- and whitespace-insensitive) or the user's `sex_coding` list — and overwrites `sex` with `M` or `F`. A retained row whose sex is missing or unrecognized gets `NA` sex, and `longwide()` warns with the count and up to five unrecognized values (`ext_bmiz()` cannot compute BMIz for those rows). Pass the same `sex_coding` given to `cleangrowth()` if you used one, because `cleangrowth()` returns sex as entered, with no record of the coding. With the default coding, `longwide()` makes the same two checks as `cleangrowth()`, on the whole `sex` column before rows are filtered and at every age: it stops if the values are only 1 and 2 with at least one 2, and gives a prominent warning if every value is 1 across more than one subject. Passing `sex_coding` removes both.
+5. **Param and measurement.** Reads `param` the way `cleangrowth()` does (its output returns `param` and `measurement` verbatim): `param_coding` labels resolve to a canonical parameter, imperial values are converted to metric (`HEIGHTIN`/`LENGTHIN` × 2.54, `WEIGHTLBS` ÷ 2.2046226), and `LENGTHCM` is treated as `HEIGHTCM` (label only; no length adjustment). Only height and weight rows are kept: head circumference is dropped silently, and a row with an unrecognized parameter is dropped with a warning naming up to five values. Pass the same `param_coding` given to `cleangrowth()` if you used one. So `ht` and `wt` in the output are always cm and kg.
+6. **Unique ids.** The function requires **unique `id`s** among the kept height and weight rows and errors on duplicates.
+7. **Height/weight separation and re-merge.** Height rows and weight rows with a non-missing measurement are split out, tagged with `ht_id`/`wt_id`, then merged on `subjid, agey, agem, agedays, sex`. `keep_unmatched_data` controls whether the merge is an inner join (default, `all = FALSE`) or a full outer join that retains heights without a same-day weight and vice versa. The merged measurements are exposed as `ht` and `wt`.
+8. **`extra_cols` handling.** For each extra column, the height-side (`.x`) and weight-side (`.y`) values are compared. If they match on every row (treating NA/NA as a match), a single merged column is kept. Otherwise the function keeps both as `ht_<col>` and `wt_<col>` plus a logical `match_<col>` column flagging where they agree.
+9. Drops the intermediate `HEIGHTCM`/`WEIGHTKG` columns (their values live in `ht`/`wt`) and gives the subject and age columns back the names passed as `subjid` and `agedays`.
+
+**Output.** A wide data frame with one row per matched subject-age, carrying the subject column (under the name passed as `subjid`), the two ids, `agey`/`agem`/`agedays`, recoded `sex` (`M` or `F`), `ht`, `wt`, and any requested extra columns. Suitable for `simple_bmi()` then `ext_bmiz()`.
+
+**Notes / pitfalls.**
+
+- The default inner join silently drops measurements without a same-day partner of the other parameter. Set `keep_unmatched_data = TRUE` to retain them.
+- Duplicate `id`s are a hard error — the wide pivot depends on a unique per-row id.
+- No optional packages are needed; `longwide()` uses base R only. If no rows are kept (or there are heights but no weights), it returns a data frame with the usual columns and no rows.
+
+---
+
+## `simple_bmi()` (utils.R)
+
+**Purpose.** Add a BMI column to wide-format data using the standard formula. Intended for output from `longwide()`.
+
+**Signature.**
+
+```r
+simple_bmi(wide_df, wtcol = "wt", htcol = "ht")
+```
+
+**Mechanics.** Verifies `wtcol` and `htcol` are present (errors otherwise), coerces to `data.table` if needed, and computes `bmi := wt / (ht * 0.01)^2` — i.e., weight in kg over height in meters squared (height is supplied in cm, hence the `0.01` factor).
+
+**Output.** The input as a `data.table` with an added `bmi` column.
+
+---
+
+## `ext_bmiz()` (cdc.R)
+
+**Purpose.** Compute the **extended** BMI metrics defined by the CDC, alongside the standard LMS z-scores and percentiles, for children aged 2–19.9 years. The extended BMIz was introduced to better characterize BMI above the 95th percentile, where the original LMS distribution is compressed and poorly discriminates severe obesity. For BMI at or below the 95th percentile the extended values equal the LMS values; they diverge only above it.
+
+This function uses the R code published on the [CDC website](https://www.cdc.gov/growth-chart-training/hcp/computer-programs/index.html) and the [cdcanthro R package](https://CRAN.R-project.org/package=cdcanthro). It is directly relevant to research comparing extended vs. original CDC BMIz. The extended BMI method is described in:
+
+> Wei R, Ogden CL, Parsons VL, Freedman DS, Hales CM. A method for calculating BMI z-scores and percentiles above the 95th percentile of the CDC growth charts. *Ann Hum Biol.* 2020 Sep;47(6):514-521. doi: [10.1080/03014460.2020.1808065](https://doi.org/10.1080/03014460.2020.1808065). PMCID: [PMC11232929](https://pmc.ncbi.nlm.nih.gov/articles/PMC11232929/).
+
+**Signature.**
+
+```r
+ext_bmiz(data,
+         age                = "agem",
+         wt                 = "wt",
+         ht                 = "ht",
+         bmi                = "bmi",
+         adjust.integer.age = TRUE,
+         ref.data.path      = "")
+```
+
+**Input expectations.**
+
+- `data` has at least age, sex, weight, height, and BMI columns. The default column names (`agem`, `wt`, `ht`, `bmi`) match `longwide()` + `simple_bmi()` output; remap via the arguments if different.
+- **`age` must be in months**, using the most precise value available (years × 12, or days ÷ 30.4375). Only ages 24–240 months are evaluated; others are dropped from the computation (but see merge-back below).
+- **`sex`** should be text: `M`/`F`, which is what `longwide()` returns, or another text code that works the same as in `cleangrowth()` (for example `b`/`g` or `male`/`female`). Numeric sex is accepted only if the column has **both 1s and 2s and no other values**, read as **1 = male, 2 = female** — *different from `cleangrowth()`'s numerical 0/1*, for historical reasons. The 1/2 coding matches the CDC reference data, CDC software, and the `cdcanthro` package. Any other numeric value stops the run. The column must be named `sex`.
+- `wt` in kg, `ht` in cm.
+- `adjust.integer.age` — if all `age` values are integers, add 0.5 (placing integer ages at mid-month, as the CDC macro does). Disable by setting `FALSE`.
+- `ref.data.path` — directory holding the reference file. Empty default loads the packaged `inst/extdata/CDCref_d.csv.gz` via `system.file()`; override only when developing against a local copy.
+
+**Mechanics (high level).**
+
+1. Checks that the named input columns (and `sex`) exist, and warns if `data` already has a column named like one of the output columns (for example, from an earlier run): the returned data has the newly calculated values in that column. Copies `data` (`dorig`) and reads the four named columns plus `sex` into a separate working table with a `seq_` row index; `data` itself is never modified and its column names are kept.
+2. Optionally bumps integer ages by 0.5 (in the working table only; the returned age column is as entered).
+3. Stops if `sex` has any numeric value unless the present values are exactly 1 and 2 (see Notes / pitfalls), then normalizes `sex` to `sexn` ∈ {1, 2} via first-character matching (logical values are not recognized).
+4. Restricts to ages 24–240 months with at least one of wt/ht present.
+5. Loads the CDC LMS reference (`CDCref_d.csv.gz`, `denom == "age"`), assembling per-month L/M/S parameters for weight, height, and BMI (including the age-240 row used for the adjusted-distance reference `mref`/`sref`).
+6. For ages not present in the reference grid, linearly interpolates the L/M/S values per sex (`approx()`).
+7. Computes LMS z-scores and modified z-scores for weight, height, and BMI via `z_score()` (see below).
+8. Derives percentiles (`pnorm`), the 95th and 97th BMI percentiles (`p95`, `p97`), `bmip95` (BMI as a percent of the 95th percentile), the obese / severe-obese flags, and the alternative distance/percent-distance metrics from PMID 31439056.
+9. **Extended BMIz/percentile.** Computes the half-normal scale parameter `sigma` (a sex-specific quadratic in age in years). For rows with LMS BMI percentile ≥ 95, replaces the percentile with `90 + 10 * pnorm((bmi - p95) / sigma)` and the z-score with `qnorm(ebp/100)`. Where the extended percentile is so close to 100 that `qnorm` returns infinity (only above 99.99999999999999, e.g. an implausibly high BMI at a young age — likely data error), the extended z is capped at **8.21**.
+10. Renames internal columns to the public output names, selects the output set, and adds the new metrics to the copy `dorig`, matched by `seq_` so every original row and column is returned in the original order (rows outside the age range get `NA` metrics). The input columns keep the user's names. Variable labels (descriptions such as "Age (months)") are attached as each column's `label` attribute (on the copy).
+
+**Key output columns.** `bmiz`/`bmip` (LMS *or* extended, identical below the 95th percentile), `original_bmiz`/`original_bmip` (always LMS), `mod_bmiz`/`mod_waz`/`mod_haz` (modified z-scores), `waz`/`wp`/`haz`/`hp` (weight- and height-for-age LMS z/percentile), `p95`/`p97`/`bmip95`, `sigma`, and the `obese`/`sev_obese` flags (`sev_obese` = BMI ≥ 120% of the 95th percentile). See `?ext_bmiz` for the full column set.
+
+**Notes / pitfalls.**
+
+- Numerical sex coding (1/2) differs from `cleangrowth()` (0/1), so `ext_bmiz()` stops on numeric sex unless the column has both 1s and 2s and no other values. This includes a column of only 1s, which could be all-male 1/2 data or all-female 0/1 data, and a column of only 2s. Numeric text and factor values are treated the same way. Single-sex data should be coded `M` or `F`. If 0 or another number means unknown, set it to `NA`. A warning gives the count of rows aged 24–240 months with a missing or unrecognized sex.
+- Age units are months, not days or years.
+- Rows outside 24–240 months are excluded from the metrics but still returned (with `NA` metrics) because the result is merged back onto the original rows.
+- Age 730 days converts to 23.98 months (730 / 30.4375), which is below 24 months, so a row at agedays 730 gets `NA` metrics even though a child at that age may be exactly 2 years old; metrics begin at day 731. This matches the `cdcanthro` package. A warning gives the number of rows at about 729–730 days.
+- The `qnorm`-infinity cap at 8.21 is intentional and matches the CDC macro's handling.
+- Dependencies: `data.table`, `R.utils` (except `extract`), and `stats::approx/pnorm/qnorm`, all from Imports; no optional packages are needed.
+
+### Internal helpers (cdc.R, not exported)
+
+**`z_score(var, l, m, s)`** — Given a measurement and its LMS parameters, returns a two-element list: the standard LMS z-score `(((var/m)^l) - 1) / (l*s)` and a **modified** z-score. The modified z-score expresses the value as a multiple of half the distance from the median to the ±2 SD points (`sdm2` below the median, `sdp2` above), which keeps extreme values on a more interpretable scale than the raw LMS z. Used for all three parameters (weight, height, BMI).
+
+**`set_cols_first(DT, cols, intersection = TRUE)`** — Reorders a `data.table` so `cols` come first (via `setcolorder`). With `intersection = TRUE` (default) only columns actually present are moved, so it is safe to pass a superset. Used to restore the original column order on the merged-back result. (Adapted from the `hutils` package.)

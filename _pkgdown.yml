@@ -1,0 +1,113 @@
+url: https://growthcleanr.org
+
+template:
+  bootstrap: 5
+  bslib:
+    base_font: { google: { family: "Source Sans 3", wght: [400, 700] } }
+    heading_font: { google: "Source Sans 3" }
+    code_font: { google: "Source Code Pro" }
+    primary: "#197D45"
+
+navbar:
+  structure:
+    left: [home, articles, reference, news]
+    right: [github]
+
+articles:
+  - title: Get started
+    desc: What growthcleanr does and how to run it. Start here.
+    contents:
+      - new-start-here
+      - experienced-start-here
+      - articles/how-to-shiny
+      - articles/how-to-r
+  - title: Running growthcleanr
+    desc: Copy-and-paste scripts for common cleaning tasks, and how to handle large datasets.
+    contents:
+      - csv-format
+      - example-scripts
+      - command-line
+      - large-datasets
+  - title: Configuration & output
+    desc: Interpreting and customizing results — no programming required.
+    contents:
+      - exclusion-codes
+      - output
+  - title: Technical reference
+    desc: >
+      How growthcleanr works inside, for understanding or modifying it. The
+      algorithm vignettes assume no special programming background; the pipeline
+      and testing vignettes assume no growth-domain background. Use whichever
+      matches what you're changing.
+    contents:
+      - child-algorithm
+      - cf-rescue
+      - adult-algorithm
+      - algorithm-functions
+      - recentering
+      - wrapper
+      - configuration
+      - utilities
+      - testing
+      - ai-role
+
+  - title: About
+    contents:
+      - articles/contributors
+
+reference:
+  - title: "Overview"
+    desc: Package overview
+  - contents:
+      - growthcleanr-package
+  - title: "Main function"
+    desc: cleangrowth() cleans growth data. Start here.
+  - contents:
+      - cleangrowth
+  - title: "Other cleaning functions"
+    desc: Other ways to run growthcleanr
+  - contents:
+      - gc_runtrial
+      - growthcleanr_app
+      - run_gc_cli
+  - title: "User utilities"
+    desc: User functions for related tasks. ext_bmiz() computes Z-scores and percentiles for pediatric subjects using the methods in the cdcanthro package (https://CRAN.R-project.org/package=cdcanthro).
+  - contents:
+      - permissiveness_presets
+      - gc_cli_path
+      - longwide
+      - simple_bmi
+      - ext_bmiz
+      - recode_sex
+  - title: "Support functions"
+    desc: Functions used within the cleaning process. Users can call them directly (for example, for checkpointed, partial, or repeated runs), but most users will not need to.
+  - contents:
+      - cleangrowth_checkpoint
+      - cleangrowth_checkpoint_combine
+      - gc_preload_refs
+      - gc_partial_run
+      - ewma
+      - read_anthro
+  - title: "Datasets"
+    desc: Reference data and additional sources
+  - contents:
+      - CDCref_d
+      - syngrowth
+      - tanner_ht_vel
+      - child_z3_reference
+      - who_ht_maxvel
+      - who_ht_vel_3sd
+      - fent_foraga
+      - fenton2025_ms_lookup_smoothed
+      - growth_cdc_ext_infants
+      - growth_who_ext
+      - rc-reference-medians
+      - who_hc_maxvel
+      - who_hc_vel_3sd
+
+
+repo:
+  url:
+    home: https://github.com/growth-data-tools/growthcleanr
+    source: https://github.com/growth-data-tools/growthcleanr/blob/main/
+    issue: https://github.com/growth-data-tools/growthcleanr/issues/

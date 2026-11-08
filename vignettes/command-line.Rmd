@@ -1,0 +1,186 @@
+---
+title: "Running growthcleanr from the command line"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Running growthcleanr from the command line}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\usepackage[utf8]{inputenc}
+---
+
+growthcleanr ships a small command-line driver: a script that takes a CSV of growth measurements in, cleans it, and writes a CSV out. It is meant for people who want to run growthcleanr from a terminal or a batch job without writing any R code -- for example from a shell script, a scheduler, or another language that can call a command.
+
+New to growthcleanr? See `vignette("new-start-here")` for what it does and the input it expects.
+
+**Please note**: The updated command-line driver is a relatively late addition to growthcleanr. It has not been as extensively tested as the R interface and Shiny app, and the documentation is not as fully developed. If you identify issues with the driver, please contact us through GitHub or email cdaymont@pennstatehealth.psu.edu.
+
+
+
+# What you need
+
+- **R installed**, so you can run `Rscript`. (You do not have to write R.)
+- **growthcleanr installed** once:
+
+```r
+install.packages("growthcleanr")
+```
+
+The driver script ships inside the package. You do not download it separately; ask growthcleanr where it is:
+
+```bash
+DRIVER=$(Rscript -e 'cat(growthcleanr::gc_cli_path())')
+```
+
+That stores the script's path in a shell variable `DRIVER` you reuse below. (Run it again in each new terminal session.)
+
+# The basic run
+
+Two arguments: the input CSV and the output CSV.
+
+```bash
+Rscript "$DRIVER" input.csv output.csv
+```
+
+Your input CSV should have one row per measurement, with the columns growthcleanr expects: `subjid`, `param`, `agedays`, `sex`, `measurement`, and optionally `id`. For the exact format (parameter names, units, sex codes) see `vignette("example-scripts")`; for how to produce the CSV file, see `vignette("csv-format")`. If your columns are named differently, you can point at them without renaming your file -- see **Different column names** below.
+
+The output CSV is your data back with growthcleanr's result columns added -- most importantly `exclude` (`Include` or an exclusion code) and `bin_exclude` (`Include`/`Exclude`). See `vignette("output")` for every column.
+
+While it runs you will see a short **cleaning in progress** line, a progress counter, and a short cleaning summary (included and excluded counts for each measurement type, and any values set aside). To silence that, add `--quiet`; to see step-by-step detail, add `--verbose`.
+
+# Large datasets: parallel and checkpointing
+
+These are the options you are most likely to reach for on real datasets. They do not change your results (growthcleanr cleans each subject independently); they make a big run faster and safer. The R vignette `vignette("large-datasets")` explains them in depth; the same options are flags here.
+
+**Run on several cores** with `--parallel` (growthcleanr picks the core count for you; pin it with `--cores N`):
+
+```bash
+Rscript "$DRIVER" input.csv output.csv --parallel
+```
+
+**Checkpointing is automatic.** growthcleanr cleans large datasets in checkpoints -- writing each finished checkpoint to disk so only one checkpoint is being cleaned in memory at a time -- which is what keeps a big run fast and stops it from running out of memory and crashing. By default the checkpoint files go to a temporary folder and are deleted automatically when the run finishes, so you do not have to do anything. Small and typical datasets stay in memory and write nothing.
+
+To keep the checkpoint files at a location you choose -- so a long run can **resume** where it stopped -- point `--checkpoint-dir` at a *new, empty* folder. If a run is interrupted, re-run the same command with `--checkpoint-resume`:
+
+```bash
+# first run
+Rscript "$DRIVER" big.csv big_cleaned.csv --checkpoint-dir gc_checkpoints
+
+# if it was interrupted, resume (same folder, same data)
+Rscript "$DRIVER" big.csv big_cleaned.csv --checkpoint-dir gc_checkpoints --checkpoint-resume
+```
+
+`--checkpoint-size N` sets how many subjects go in each saved file (default 5000; usually leave it). Combine with `--parallel` -- fast *and* resumable:
+
+```bash
+Rscript "$DRIVER" big.csv big_cleaned.csv --parallel --checkpoint-dir gc_checkpoints
+```
+
+`--no-keep-checkpoints` deletes the saved files after a successful run.
+
+Use `--no-checkpoint` to turn checkpointing off entirely and never write intermediate data to disk (the run stays fully in memory). On a very large dataset that can slow the run down or run out of memory; reach for it when the environment must not write data to disk at all.
+
+# Adult data
+
+By default growthcleanr treats measurements at age 20 years and older with the adult algorithm. Two flags matter most:
+
+```bash
+Rscript "$DRIVER" adults.csv out.csv \
+  --adult-cutpoint 18 \
+  --adult-permissiveness looser
+```
+
+`--adult-cutpoint` (clamped to 18-20) sets the pediatric/adult boundary; `--adult-permissiveness` picks how strict the adult algorithm is (`loosest`/`looser`/`tighter`/`tightest`; in general, `looser`/`loosest` flag fewer values and `tighter`/`tightest` flag more). To choose a level, see Section 1D of `vignette("configuration")`. Fine-grained control over individual adult thresholds is only available from R (the `adult_overrides` argument to `cleangrowth()`), not from the command line.
+
+If your adult weights come from an organization that uses scales or recording practices with a known upper limit (or if an upper limit is apparent in the data), provide the limit in pounds with `--adult-scale-max-lbs` (for example `--adult-scale-max-lbs 400`). This replaces the 2.x `--weightcap` flag, which was in kilograms. Pounds are used because most scale limits we have seen are in pounds.
+
+# Different column names
+
+If your CSV does not use the standard column names or coding, you can provide the real column names instead of editing your file:
+
+```bash
+Rscript "$DRIVER" mydata.csv out.csv \
+  --subjid-col patient_id --agedays-col age_days --measurement-col value
+```
+
+The output keeps your original column names.
+
+# Wide and semi-wide layouts
+
+growthcleanr's default is **long** format (one row per measurement). It can also read two other shapes; you tell it which with `--input-format` and, when your columns are not literally named like the parameters, which column holds which measurement.
+
+You name the column for each measurement with a `--...-weight`/`-height`/`-head`/`-length` flag, and -- if that column is not in metric units -- add the matching `--weight-units`/`--height-units`/`--head-units`/`--length-units` flag. Each units flag takes `kg`/`lbs` (weight) or `cm`/`in` (height, head, length) and defaults to metric, so you only add it for imperial columns. growthcleanr converts imperial to metric internally. (This pairs a column name with a units choice the same way the growthcleanr Shiny app does.)
+
+**Semi-wide** -- one row per visit, one column per measurement. Say a visit row has `subjid, agedays, sex, WT, ht`, where `WT` is weight in kg and `ht` is height in cm:
+
+```bash
+Rscript "$DRIVER" visits.csv out.csv \
+  --input-format semi_wide \
+  --semiwide-col-weight WT --semiwide-col-height ht
+```
+
+If `WT` instead held **pounds**, add the units flag and growthcleanr converts it: `--semiwide-col-weight WT --weight-units lbs`. If your columns are literally named `WEIGHTKG`/`HEIGHTCM`, you can drop the `--semiwide-col-*` flags entirely.
+
+**Wide** -- one row per subject, with repeated observation blocks. Say a subject row has `subjid, sex, WT_1, WT_2, ht_1, ht_2, agedays_1, agedays_2`. You give the column *prefix* (`WT`, `ht`); growthcleanr finds the numbered blocks:
+
+```bash
+Rscript "$DRIVER" wide.csv out.csv \
+  --input-format wide \
+  --wide-weight WT --wide-height ht
+```
+
+The same `--*-units` flags apply here too (e.g. `--wide-weight WT --weight-units lbs`).
+
+By default the output comes back in the same shape as the input; add `--output-format long` to get long output instead.
+
+# Recoding sex and parameters
+
+growthcleanr recognizes common sex codes (0/`m`/`male`/`boy`, 1/`f`/`female`/`girl`) and the spelled-out parameter names. If your data uses other codes, map them.
+
+**Sex** -- supply both sides together (each replaces one side of the coding):
+
+```bash
+Rscript "$DRIVER" input.csv out.csv \
+  --sex-male "0,M,Male" --sex-female "1,F,Female"
+```
+
+**Parameters** -- growthcleanr does not guess abbreviations (a bare `WT` might be a sample weight, not body weight), so map your labels to the parameter they mean with `--param-weight`/`-height`/`-head`/`-length`. A comma-separated list is allowed. As with the wide/semi-wide flags, add a `--*-units` flag when a mapped column is imperial:
+
+```bash
+Rscript "$DRIVER" input.csv out.csv \
+  --param-weight "WT,body_wt" --param-height "HT"
+```
+
+If one of those labels held pounds, name it in its own run with the units flag (`--param-weight "WT_LBS" --weight-units lbs`).
+
+# Seeing every option
+
+For the complete, current list of flags with one-line help, ask the driver:
+
+```bash
+Rscript "$DRIVER" --help
+```
+
+# Flags from growthcleanr 2.x
+
+If you have shell scripts written for the growthcleanr 2.x driver, update the flags as below. Flags now use hyphens rather than underscores, and single-letter flags are no longer accepted (see Tips).
+
+| 2.x flag | v3 flag | Notes |
+|---|---|---|
+| `--adult_cutpoint` | `--adult-cutpoint` | Same meaning (years); clamped to 18-20. |
+| `--weightcap` | `--adult-scale-max-lbs` | Now in pounds, not kilograms. |
+| `--numbatches` | `--parallel` (and optionally `--cores`) | `--parallel` picks the core count; `--cores` sets it. |
+| `--adult_split` | *(removed)* | Batching is automatic; see `--batch-size` and checkpointing above. |
+| `--quietly` | `--quiet` | Progress now prints by default; `--quiet` turns it off. |
+| `--sdrecenter` | *(removed)* | The built-in recentering reference is the default. A table of your own medians can be supplied only from R (`sd.recenter`); see `vignette("recentering")`. |
+
+The version 3 driver writes `exclude` (plus `bin_exclude`, `unit_error_range`, and for data with adult rows `mean_ht`) instead of 2.x's `gcr_result`, with renamed codes (see the mapping in `vignette("experienced-start-here")`). Scripts that found the old driver with `system.file("exec", "gcdriver.R", ...)` now get an empty path, and `Rscript` then fails with a confusing parse error.
+
+# Tips
+
+- **Same results as R.** The CLI driver is a thin wrapper around `cleangrowth()`; the output is identical to the equivalent R call.
+- **Long flags only.** Write every option in its full `--flag-name` form. Single-letter flags such as `-w` or `-s` are rejected with an error, because several letters meant different options in growthcleanr 2.x. (`-h` still shows the help.)
+- **Exit codes.** The command exits `0` on success and non-zero on any error (bad input file, an unrecognized option value, a failed run), with a message on standard error -- so you can check it in a shell script.
+- **Progress in a log.** For a long checkpointed run you can add `--log-file run.log` to also write progress to a file a colleague can watch.
+- **Opening the output in Excel?** Identifier columns are written out exactly as submitted, so a `subjid`/`id` that begins with `=`, `+`, `-`, or `@` may be read as a formula if you double-click the CSV open in a spreadsheet (a general CSV caveat, not specific to growthcleanr). If you don't fully trust the identifier values, import the file as text instead of opening it directly. See `vignette("output")` for detail.
+- **Windows shells.** The examples use a macOS/Linux shell. In Windows `cmd` or PowerShell the shell-variable syntax differs; either adapt it, or replace `"$DRIVER"` with the full path to the driver (print it with `Rscript -e "cat(growthcleanr::gc_cli_path())"`). growthcleanr runs the same on every platform.
+- **Prefer R?** Everything here is available directly from `cleangrowth()`; the copy-and-paste R scripts are in `vignette("example-scripts")`.

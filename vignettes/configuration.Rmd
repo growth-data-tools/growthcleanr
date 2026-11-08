@@ -1,0 +1,578 @@
+---
+title: "Configuration: arguments and thresholds"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Configuration: arguments and thresholds}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\usepackage[utf8]{inputenc}
+---
+
+
+
+Authoritative index of every user-configurable component of the algorithm. For reference, hard-coded numeric threshold and reference-data-driven values are also provided. The algorithm vignettes (`vignette("child-algorithm")`, `vignette("wrapper")`, `vignette("adult-algorithm")`) cite this reference for defaults and thresholds rather than duplicating them.
+
+If you are interested in the adult permissiveness presets, see [Section 1D](#adult-presets).
+
+---
+
+## How to Read This Reference
+
+**Three categories:**
+
+1. **Arguments** — arguments to `cleangrowth()` that change how growthcleanr cleans, runs, or what it returns. Organized by algorithm scope.
+2. **Hardcoded thresholds** — numeric values baked into the code; a caller cannot change them without downloading and editing the package code. These are provided for reference and are organized by step.
+3. **Reference-data-driven values** — loaded from external files in `inst/extdata/` or defined in large lookup tables. Some can be replaced with your own values: `sd.recenter` takes a table of recentering medians (or `"none"` to turn recentering off), and `ref.data.path` points to a folder of reference files. Non-configurable, hard-coded reference-data-driven values are provided for reference.
+
+**Sections per category:**
+
+- Argument/threshold name (as written in code)
+- Value (default for configurable; literal for hardcoded; "see file X" for ref-data)
+- Scope (step, phase, or algorithm)
+- Code location (file + function + sub-section)
+- Brief role
+
+**Conventions:**
+
+- `<` / `>` = strict inequalities unless noted
+- Param values: `"WEIGHTKG"`, `"HEIGHTCM"`, `"HEADCM"` (after input conversion)
+- Sex: 0 = male, 1 = female
+- All adult threshold comparisons include the 0.12 cm/kg adult rounding tolerance unless explicitly noted otherwise
+- **Exclusion-code strings shown in this reference are the algorithm's internal literals** (e.g. `Exclude-C-PIV`, `Exclude-Missing`, `Exclude-Not-Cleaned`, `Exclude-A-Scale-Max`) — the values the code assigns and tests internally. growthcleanr maps these to the user-facing **Summary** (`exclude`) and **Detailed** (`exclude_detailed`) output codes at output assembly; the internal literals are unchanged. For the output codes and the internal→Summary/Detailed crosswalk, see `vignette("exclusion-codes")`.
+
+---
+
+## 1. User arguments
+
+### 1A. Wrapper-level (exposed in `cleangrowth()` signature)
+
+Ready-to-run scripts for the most common of these (column names, `sex_coding`, `param_coding`, dates, `input_format`, parallel and checkpointing, adult settings) are in `vignette("example-scripts")`.
+
+| Argument | Default | Used in | Role |
+|-----------|---------|---------|------|
+| `id` | `NULL` (optional) | `cleangrowth` preprocessing; output | Unique row identifier. Fully optional. When absent / `NULL` / contains `NA` / not unique, a warning is issued and sequential ids `1:N` (in input row order) are auto-generated for internal use. The user's original `id` (whatever was supplied — even if invalid) is preserved untouched in the output `id` column. To see the id growthcleanr actually used internally (= user's id when valid, = regen otherwise), set `display_gc_id = TRUE` or `full_detail = TRUE`. Semi-wide/wide input: the `id` argument, or a column named `id`, identifies an input row (it need not be unique); growthcleanr mints its own per-measurement ids. In semi-wide input the id orders a subject's visit rows when the minted ids are assigned (so it can decide which same-day value is kept when the id tiebreak applies); in wide input it does not affect cleaning. It is returned unchanged in semi-wide/wide output and, in long output, under its own column name on each measurement from that row, with growthcleanr's number in `gc_internal_id`. |
+| `subjid` | (required) — column name in `data` (data-frame style) or a vector (vector style) | `cleangrowth` preprocessing | Subject identifier vector |
+| `param` | (required) — column name in `data` (data-frame style) or a vector (vector style) | `cleangrowth` preprocessing | Measurement-type vector. Canonical: `WEIGHTKG`, `HEIGHTCM`, `LENGTHCM`, `HEADCM`, `WEIGHTLBS`, `HEIGHTIN`, `LENGTHIN`, `HEADIN`. Matched case-insensitively. No built-in abbreviations — a bare `WT`/`HT`/`HC` is not assumed to be a gc parameter (may be a sample weight, etc.); map non-canonical labels with `param_coding`. See `vignette("wrapper")` → Flexible sex and parameter coding. |
+| `agedays` | (required) — column name in `data` (data-frame style) or a vector (vector style) | `cleangrowth` preprocessing | Age in days at measurement |
+| `sex` | (required) — column name in `data` (data-frame style) or a vector (vector style) | `cleangrowth` preprocessing | Sex indicator; default codes 0/`"m"`/`"b"`/`"male"`/`"boy"` = male, 1/`"f"`/`"g"`/`"female"`/`"girl"` = female (case-insensitive). Override with `sex_coding`. A 1=male/2=female column hard-stops unless declared. See `vignette("wrapper")` → Flexible sex and parameter coding. |
+| `sex_coding` | `list(male = c(0, "m", "b", "male", "boy"), female = c(1, "f", "g", "female", "girl"))` | `cleangrowth` preprocessing (`.gc_recode_sex`, `reshape_adapters.R`) | Named list (`male`, `female`) of the codes denoting each sex; case-insensitive, whitespace-trimmed. Supplying a table replaces the defaults wholesale and suppresses the 1/2 guard. Errors if a code is under both sexes. Present-but-unrecognized codes → `Exclude-Missing-Info` + warning. |
+| `param_coding` | `NULL` | `cleangrowth` preprocessing (`.gc_recode_param`, `reshape_adapters.R`) | Optional named list keyed by canonical parameter, values = your labels to remap (case-insensitive). The only way to have a non-canonical label recognized (there are no built-in abbreviations); also how you declare a remapped column is imperial (map to `WEIGHTLBS`/`HEIGHTIN`/`LENGTHIN`/`HEADIN`), else it defaults to its metric target. Errors if a name is not canonical or a label maps to two parameters. |
+| `measurement` | (required) — column name in `data` (data-frame style) or a vector (vector style) | `cleangrowth` preprocessing | Recorded value in units specified by `param` |
+| `input_format` | `"long"` | `cleangrowth` input dispatch (Hook A, `reshape_adapters.R`) | Shape of `data`: `"long"` (one row per measurement), `"semi_wide"` (one row per visit, one column per parameter), or `"wide"` (one row per subject, repeated observation blocks marked by a `_N` column suffix). Non-long input is reshaped to long before cleaning, so results match the equivalent long submission. Requires data-frame style. See `vignette("wrapper")` → Input format. |
+| `output_format` | `NULL` | `cleangrowth` output (Hook B, `reshape_adapters.R`) | Shape of the returned results: `"long"`, `"semi_wide"`, or `"wide"`. `NULL` mirrors `input_format`, so semi-wide input returns semi-wide output and wide input returns wide output. Re-widened output returns the submitted table with the growthcleanr columns named in `widened_emit` slotted in beside each value column (`exclude_wt_cm` for semi-wide, `exclude_wt_1` for wide); it requires the matching input format (checkpointed runs are supported). See **Output format: semi-wide / wide** in `vignette("wrapper")`. |
+| `widened_emit` | `"exclude"` | `.gc_semiwide_output` / `.gc_wide_output` (`reshape_adapters.R`) | Which growthcleanr output columns to add to re-widened (semi-wide or wide) output. Any per-measurement column may be named (`"bin_exclude"`, `"exclude_detailed"`, `"unit_error_range"`, `"measurement"`, `"agedays"`, ...); naming one whose own switch is off is an error. gc output columns take the value-column suffix only (`exclude_wt_kg`; `exclude_wt_1` for wide); gc's internal version of a submitted value takes a `gc_internal_` prefix (`gc_internal_meas_wt_lbs`). `"measurement"` also emits `gc_internal_param_*`. `agedays` is per visit in semi-wide, per block in wide (`gc_internal_agedays_1`, ...). Used when `output_format` is `"semi_wide"` or `"wide"`. |
+| `internal_detail` | `FALSE` | Output assembly | Adds `gc_internal_meas`, `gc_internal_param`, `gc_internal_sex`, `gc_internal_id`, and `gc_internal_agedays` -- growthcleanr's working values for the key inputs the user supplied (imperial converted to metric, LENGTHCM relabeled, sex coerced to 0/1, age as whole days; the `length.adjust` offset is applied only to z-scores, so it is not reflected in `gc_internal_meas`) -- plus `gc_internal_dob` / `gc_internal_visit_date` when a `dob` / `visit_date` column was supplied. The primary columns always return the verbatim submission. The imperial conversion and the LENGTHCM relabel are reflected for every row. Enabled by `full_detail`. |
+| `semiwide_cols` | `NULL` | `.gc_semiwide_to_long` (`reshape_adapters.R`) | Named list/vector mapping gc parameters to their value columns for semi-wide input, e.g. `list(WEIGHTKG = "wt_kg", HEIGHTCM = "ht_cm", HEADCM = "head_cm")`. `NULL` uses columns literally named as recognized parameters. Only used when `input_format = "semi_wide"`. |
+| `wide_cols` | `NULL` | `.gc_wide_to_long` (`reshape_adapters.R`) | Named list/vector mapping gc parameters to their column-name *prefixes* for wide input, e.g. `list(WEIGHTKG = "wt", HEIGHTCM = "ht", HEADCM = "hc")` for `wt_1`, `wt_2`, `ht_1`, .... The user picks the prefix; growthcleanr requires the `_N` block suffix and discovers blocks from it. `NULL` uses prefixes literally named as recognized parameters (`WEIGHTKG_1`, ...). A mapped prefix with no `<prefix>_N` columns is an error. `subjid`/`sex` are patient-level; the age source is per block (`agedays_N`, or `dob` + `visit_date_N`). Only used when `input_format = "wide"`. |
+| `max_blocks` | `25` | `.gc_wide_to_long` (`reshape_adapters.R`) | Highest number of wide observation blocks expected. Finding more warns (with guidance to raise it or reshape to long/semi-wide) but processes every block; an implausible count errors, since it usually means the `_N` suffixes parsed wrong. Only used when `input_format = "wide"`. |
+| `dob` | `NULL` | `cleangrowth` preprocessing (age) | Date-of-birth column name (data-frame style only). Column is class `Date` or a text date; a subject with more than one distinct dob value is set aside as `Exclude-Missing-Info`, with a warning. Supplied with `visit_date` to compute `agedays` as `floor(visit_date - dob)` in whole days. Text dates parse under order-free formats — year-first numeric (`2013-03-04`, `2013/03/04`, `20130304`) or English spelled-month (`03mar2013`, `March 15, 2024`) — or, for numeric day/month (`3/4/2013`), only with `date_order`. All dates in `dob`/`visit_date` share one format; four-digit years 1900–2099 only. Blank/`NA` and text with no digits (e.g. `N/A`) -> missing `agedays`; a few dates that are not real dates are set aside, more than a few stop the run; numeric date integers are rejected. See `vignette("wrapper")` → Date parsing. |
+| `visit_date` | `NULL` | `cleangrowth` preprocessing (age) | Visit (measurement) date column name (data-frame style only). Class `Date` or a text date in the same accepted formats as `dob`. Supplied together with `dob`. |
+| `age_source` | `NULL` | `cleangrowth` preprocessing (age) | Which age source to resolve `agedays` from: `"agedays"` (the `agedays` column) or `"dates"` (`dob` + `visit_date`). `NULL` auto-resolves (an `agedays` column wins when present; otherwise the dates). Set `"dates"` to force date-based ages even when an `agedays` column is present. With `"dates"` and an age column present, that column is returned as submitted and the computed ages as `gc_internal_agedays`. |
+| `date_order` | `NULL` | `cleangrowth` preprocessing (age) | Day-vs-month order for ambiguous numeric `dob`/`visit_date` values (data-frame style only), e.g. `"3/4/2013"`: `"dmy"` (day-month-year) or `"mdy"` (month-day-year), applied uniformly. `NULL` accepts only the order-free formats and errors on numeric day/month dates, so an ambiguous order is never guessed. growthcleanr never auto-detects order. |
+| `carry_through` | `TRUE` | `cleangrowth` preprocessing; output | Data-frame style only. When `TRUE` (default), columns in `data` that are not resolved role columns (`subjid`/`param`/`agedays`/`sex`/`measurement`/`id`) are parked and returned appended after the gc output columns (original order/values; `dob`/`visit_date` are echoed back this way). A carried column whose name matches a column gc returns in this run (e.g. `exclude`) is returned as `userinput_<name>`, with a warning; names of gc columns not returned in the run are left alone. `FALSE` drops all non-role columns (prior behavior). Semi-wide/wide input: with semi-wide/wide output your table is the output base (`TRUE` keeps every column, `FALSE` keeps the role, id and value columns); with long output, your other columns (including `dob`/`visit_date`; in wide, not the per-block columns) are repeated on each measurement from their row. |
+| `adult_cutpoint` | `20` | Preprocessing (pediatric/adult split) | Age (years) dividing pediatric/adult processing. Clamped to `[18, 20]`, with a warning when a value is moved. growthcleanr never changes it based on the data (each subject is cleaned independently of the rest of the dataset); if it is left at the default and every known-age measurement is >= 18y with some in the 18-20y range, a warning suggests `adult_cutpoint = 18` to clean those with the adult algorithm instead of the child path. |
+| `sd.recenter` | `NA` | Recentering (Phase 11) | Recentering medians: `NA` (built-in `rcfile-resmoothed.csv.gz`), `"none"` (no recentering; `tbc.sd = sd.orig`), or your own table (a data.table or data.frame with columns `param`, `sex`, `agedays`, `rcmedian.sd`), which must cover every param, sex, and agedays of the child measurements to be cleaned, or `cleangrowth()` stops. See `vignette("recentering")`. |
+| `ref.data.path` | `""` | Preprocessing; Child Step 17 | Override directory for reference files. `""` uses package `inst/extdata/`. |
+| `batch_size` | `5000` | Outer-wrapper batching | Subjects per processing batch (the in-memory unit); must be a single positive whole number. Independent of `checkpoint_size`. |
+| `checkpoint` | `TRUE` | Checkpointed runs (`cleangrowth_checkpoint.R`) | Master on/off switch. `TRUE` (default) checkpoints to an ephemeral per-session temp dir, engaging only when subjects > `checkpoint_size` (small/typical data runs in memory, writing nothing); those files are auto-deleted (`keep_checkpoints` forced `FALSE`). `FALSE` disables checkpointing entirely (nothing written to disk) and overrides `checkpoint_dir` with a warning. Supplying `checkpoint_dir` makes checkpointing persistent + resumable. See `vignette("large-datasets")` for use; `vignette("wrapper")` -> Checkpointed runs for internals. |
+| `checkpoint_dir` | `NULL` | Checkpointed runs (`cleangrowth_checkpoint.R`) | Persistent, resumable checkpoint location. When set, split subjects into checkpoints of `checkpoint_size`, clean each checkpoint, persist it to a `checkpoint_NNNN.rds` file here, and combine at the end. `NULL` (default) uses the ephemeral temp dir described under `checkpoint` (or no checkpointing when `checkpoint = FALSE`). Result is identical to a single-pass run (incl. wide/semi-wide input/output). |
+| `checkpoint_size` | `5000` | Checkpointed runs | Subjects per checkpoint (the persist unit; one `.rds` per checkpoint), and the threshold above which the `checkpoint = TRUE` default engages. Independent of `batch_size` (`batch_size < checkpoint_size` allowed). Capped at 9999 checkpoints: a size that would exceed the cap is increased (with a warning if you set it). |
+| `checkpoint_resume` | `FALSE` | Checkpointed runs | Only meaningful with a persistent `checkpoint_dir` (forced `FALSE` on the ephemeral default). FALSE starts fresh (deletes prior checkpoint files); TRUE reuses existing checkpoint files (skips completed checkpoints) to resume an interrupted run. |
+| `keep_checkpoints` | `TRUE` | Checkpointed runs | TRUE leaves the per-checkpoint files after a successful run; FALSE deletes them once combined. Independent of `checkpoint_resume`. Forced `FALSE` on the ephemeral `checkpoint = TRUE` default (temp files are always cleaned up); the `TRUE` default applies when you set `checkpoint_dir`. |
+| `log_file` | `NULL` | Checkpointed runs | Only used when `checkpoint_dir` is set. Path to also append progress messages to (console always gets them unless `quietly`), so a colleague can monitor a long run remotely. |
+| `parallel` | `FALSE` | Inner batching | Run batches in parallel (foreach %dopar% dispatch) |
+| `cores` | `NULL` | Inner batching | Number of parallel workers when `parallel = TRUE`; `NULL` auto-detects `min(8, detectCores() - 1)`, capped at 8. An explicit value above `detectCores()` is reduced to it. Ignored when `parallel = FALSE` |
+| `log.path` | `NA` | Parallel logging | Deprecated (warns when supplied); use `log_file`. Log directory for parallel mode |
+| `ref_tables` | `NULL` | All reads | Pre-loaded reference closures from `gc_preload_refs()`; skips per-call disk reads (~0.93 sec/call) |
+| `tri_exclude` | `FALSE` | Output assembly | Include `tri_exclude` column in output (`"Include"` / `"Same-Day"` / `"Exclude"`) |
+| `corr_detail` | `FALSE` | Output assembly | Add `corr_val` (per-value: `"Corrected"` / `"Uncorrected"` / `"Adult"`) and `corr_pt` (per-subject) correction-status columns |
+| `recenter_detail` | `FALSE` | Output assembly | Include the recentered CSD z-score columns `tbc.sd`, `ctbc.sd`, and `rcmedian.sd` (the per-row recentering median subtracted). **Specialized output for a related tool in development.** Child rows only (NA on adult). |
+| `qm_detail` | `FALSE` | `cleanchild` per-step capture; output | *For a related package in development — not used in cleaning (see `vignette("output")` §5c).* Emit ten per-step **eligibility flags** for the child cleaning steps (`qm_elig_c_cf`, `qm_elig_c_hardlimit`, `qm_elig_c_eviltwins`, `qm_elig_c_trajextreme`, `qm_elig_extraneous`, `qm_elig_c_traj`, `qm_elig_c_absdiff`, `qm_elig_c_pair`, `qm_elig_c_single`, `qm_elig_c_trajuneval`): each logical column is TRUE where the row was eligible for (the denominator of) that step. Write-only — never affects any exclusion. Child rows only (NA on adult). For eligibility-normalized quality measures; usually paired with `exclude_detail = TRUE`. See `vignette("output")` §5c for the per-column definitions. |
+| `debug` | `FALSE` | Output assembly | Retain intermediate CSD z-score columns (`sd.orig`, `sd.corr`, `tbc.sd`, `ctbc.sd`) plus ±5%-wt / ±1 cm plus/minus perturbation z-scores (`tbc.p_plus`, `tbc.p_minus`, `ctbc.p_plus`, `ctbc.p_minus`); z-scores are child rows only (NA on adult). Also adds `gc_internal_sex` — gc's interpreted integer sex (`0`/`1`/`NA`, all rows); the primary `sex` column carries the user's verbatim submission. |
+| `exclude_detail` | `FALSE` | Output assembly | Add the step-level **Detailed** exclusion code in an `exclude_detailed` column (the default `exclude` column always carries the consolidated **Summary** code). See `vignette("exclusion-codes")` for the two levels and crosswalk. |
+| `mean_ht` | returned when the data has adult rows | Output assembly | Include a `mean_ht` column (`TRUE` always returns it; `FALSE` omits it): the adult algorithm's calculated mean height (cm) (Adult Step 11H). The `mean_ht` column can be used by researchers who want a consistent height for evaluation of body mass index. Computed only from the subject's finally-included heights and populated on every adult height row (an excluded or missing height row takes the value of the included height nearest in age); `NA` for child rows, adult weight rows, and all height rows of a subject with no included height. The value is always computed; this switch controls only whether it is returned. Auto-set TRUE by `full_detail = TRUE`. |
+| `full_detail` | `FALSE` | Output assembly | Convenience switch: enables `exclude_detail` + `cf_detail` + `corr_detail` + `recenter_detail` + `debug` + `tri_exclude` + `display_gc_id` + `internal_detail` + `mean_ht` together. Does **not** enable `qm_detail` (request it explicitly). |
+| `unit_error_range` | `TRUE` (default ON) | Output assembly | Add informational `unit_error_range` logical column. TRUE when a value's magnitude is consistent with a metric/imperial unit-conversion error AND it is outside the plausible z = −3 to +3 band. Never affects `exclude`; not in `exclude.levels`. Child zn3/zp3 from `child_z3_reference.csv.gz`; adult from the embedded NHANES CSD reference. Also drives a soft warning when > 20% of a parameter group's cleaned values are flagged (whole column may be in the wrong unit). Set FALSE to omit the column (and the warning). |
+| `display_gc_id` | `FALSE` | Output assembly | Add a `gc_internal_id` column to the output containing the id growthcleanr actually used internally: equals the user's `id` when it was valid (no regen), or the auto-generated `1:N` (in input row order) when `id` was absent / `NA` / non-unique and gc had to regenerate. Lets callers recover a reliable per-row key when their input `id` had problems (output `id` always preserves whatever the user supplied). Auto-set TRUE by `full_detail = TRUE`. Not needed for semi-wide/wide input returned as long output, where `gc_internal_id` is always returned. |
+| `quietly` | `FALSE` | All steps | Progress level. Default `FALSE` prints the **minimal** view (a "cleaning in progress" header, an X/Y batch/checkpoint counter, and the end cleaning summary); `TRUE` turns off the progress lines and the summary (warnings, and the one-time note for vector-style calls, still appear). For the detailed per-step view use `verbose`. See `vignette("wrapper")` → Progress output. |
+| `verbose` | `FALSE` | All steps | When TRUE, prints the **detailed** view: the milestone lines (preprocessing, per-batch cleaning-child / cleaning-adult) plus granular per-step diagnostics (CF/EWMA/SDE/Evil-twins pre-filter + iteration counts, adult step headers). Implies `quietly = FALSE`. Threaded into `cleanchild()` / `cleanadult()`. Development/debugging only. |
+
+### 1B. Child algorithm (passed through `cleangrowth()` into `cleanchild()`)
+
+| Argument | Default | Used in | Role |
+|-----------|---------|---------|------|
+| `piv.z.wt.high` | `22` | Child Step 7 | Upper unrecentered CSD z cutoff for WEIGHTKG (all ages). Weight has **no** standardized low cutoff — the low-WT z asymptotes near -10 with a positive weight, so the absolute floors `v<0.2`/`v<1` kg do that job. |
+| `piv.z.ht.low.young` | `-25` | Child Step 7 | Lower unrecentered CSD z cutoff for HEIGHTCM at `ageyears < 1` |
+| `piv.z.ht.low.old` | `-15` | Child Step 7 | Lower unrecentered CSD z cutoff for HEIGHTCM at `ageyears >= 1` |
+| `piv.z.ht.high` | `8` | Child Step 7 | Upper unrecentered CSD z cutoff for HEIGHTCM (all ages) |
+| `piv.z.hc.low` | `-15` | Child Step 7 | Lower unrecentered CSD z cutoff for HEADCM (all ages) |
+| `piv.z.hc.high` | `15` | Child Step 7 | Upper unrecentered CSD z cutoff for HEADCM (all ages) |
+| `cf_rescue` | `"standard"` | Child Step 6 | CF rescue mode: `"standard"` (deltaz/nextz rule), `"none"` (all CFs excluded), `"all"` (all rescued). `TRUE`/`FALSE` stop with a pointer to the 2.x equivalent; other values are resolved by `match.arg()`. |
+| `cf_detail` | `FALSE` | Child Step 6; output | If TRUE, add diagnostic columns `cf_status`, `cf_deltaz`, `cf_nextz`, `imperial`, `cf_dage_orig`, and `cf_dage_next` to output. `cf_status` adds `"CF-E"` (same-day-extraneous CF) alongside Orig/CF-R/CF-NR/Not-CF/Adult; in `cf_rescue = "all"`, same-day CFs are labelled `CF-R` instead, with `cf_deltaz` and `cf_dage_orig` `NA`. `cf_nextz` is the signed change in `sd.orig` from each CF row to the next non-CF Included value at the time of Step 6 (temp SDEs skipped). The last three are design aids for CF-logic development: `imperial` (whole/half imperial-unit flag), `cf_dage_orig` (originator→CF day gap), `cf_dage_next` (CF→next-Included day gap). |
+| `ewma_window` | `15` | Child Steps 11, 13, 15/16, 17; Adult Steps 9Wb, 11Wb | Max observations on each side that contribute to EWMA weighting. Single parameter in `cleangrowth()` affecting both child and adult. |
+| `error.load.mincount` | `2` | Child Step 21 | Minimum "real" errors (not SDE / CF / Missing / Not-Cleaned) before error-load is evaluated |
+| `error.load.threshold` | `0.5` | Child Step 21 | Error ratio above which all remaining Include rows for the subject-param are excluded. Strict `>`. |
+| `length.adjust` | `FALSE` | Preprocessing (before z-scores) | If TRUE, reconciles entered linear measurements with what the reference at that age expects, in both directions (±0.7 cm at the 2-year boundary, day 730; pediatric-only; **long input only**). Full behavior is the SSOT in `vignette("wrapper")`, section "Length vs. height handling". Arithmetic in `.gc_to_metric()` (`reshape_adapters.R`); called from `child_clean.R` → `cleangrowth()` inside the outer batch loop. |
+
+### 1C. Adult algorithm (wrapper-exposed)
+
+These adult arguments are exposed directly through `cleangrowth()`; the individual permissiveness settings (Section 1D) are set by the preset and, if needed, overridden through `adult_overrides`.
+
+| Argument | Default | Used in | Role |
+|-----------|---------|---------|------|
+| `adult_permissiveness` | `"looser"` | `cleanadult` preset resolver | Preset level: `"loosest"`, `"looser"`, `"tighter"`, `"tightest"` (case and surrounding spaces are ignored). Sets defaults for all adult settings. |
+| `adult_scale_max_lbs` | `Inf` | Adult Step 4W | Physical scale upper limit in pounds. Weights within ±0.1 kg of the cap are excluded if they are more than 50 kg different from their expected value, or if all of the subject's weights (at least two) are the same value at the cap. |
+| `ewma_window` | `15` | Adult Steps 9Wb, 11Wb | See Section 1B — shared parameter with child; single value in `cleangrowth()` affects both algorithms. |
+| `adult_overrides` | `NULL` | `cleanadult` preset resolver | Optional named list overriding individual Section-1D settings, e.g. `list(overall_ht_min = 120, allow_ht_gain = FALSE)`. Each named value replaces the preset value for that setting; unnamed or unrecognized names are an error. Adult rows only. |
+
+### 1D. Adult permissiveness presets (set by `adult_permissiveness`) {#adult-presets}
+
+Cleaning is always imperfect, and there is always a tradeoff between over- and under-excluding measurements. Depending on the study population, research question, and analytic method, users may prioritize sensitivity or specificity. There are multiple settings in the adult algorithm that can be changed to adjust cleaning performance. The default values for these settings can be adjusted together using the `adult_permissiveness` argument or can be adjusted individually.
+
+There are four permissiveness levels, set with the `adult_permissiveness` argument: `loosest`, `looser`, `tighter`, and `tightest`. The `loosest` setting will generally lead to the fewest exclusions, and `tightest` to the most exclusions. The `looser` setting is the default and is most similar to v2.2.3 (although not exactly the same). Descriptions and example use cases for the permissiveness options are below, followed by a table with the specific preset values and information regarding how to adjust settings individually. More detailed documentation of these settings is in `vignette("adult-algorithm")` ("Permissiveness Framework" and the step sections named in the Role column of the table below). Child-algorithm arguments are in Section 1B.
+
+**Permissiveness setting intended use and description**
+
+- **`loosest`**: Intended for studies of patients who may have extreme size changes, and for which the priority is to retain all plausible values. Allows extreme weight changes (bariatric surgery, rapid fluid status change), significant height measurement error, height gain in young adults, and height loss. 
+
+- **`looser`** (default): Intended for studies of a broad population of patients (who may include patients taking GLP-1 medication or having had bariatric surgery) but for which the user accepts exclusion of occasional plausible measurements for patients with extreme size or extreme size changes in order to exclude more values that likely represent error. Retains most plausible values. Slightly less extreme weights allowed. Height gain allowed; height loss beyond the 3-inch band is not. 
+
+- **`tighter`**: Intended for studies that may include patients with atypical size (e.g., class 3 obesity) or relatively significant change in size, but for which retention of true extreme values or very unusual patterns is a lower priority than excluding most implausible measurements. May result in exclusion of some plausible values likely reflecting illness with large effect on body size. Less permissive height limits. Height gain allowed; height loss beyond the 2-inch band is not. Repeated values treated as less informative (see "Repeated Value (RV) Handling" in `vignette("adult-algorithm")`). 
+
+- **`tightest`**: Intended for studies of relatively healthy populations and central tendencies. Excludes extreme measurements even if plausible given a patient's other measurements. Tightest weight and height limits. No height gain or loss allowance. Repeated values treated as less informative (see "Repeated Value (RV) Handling" in `vignette("adult-algorithm")`). The `allofus15` weight-allowance formula used at the `tightest` level was adapted from the algorithm developed by Guide et al. (2024) for the All of Us Research Program (full citation under "Permissiveness Framework" in `vignette("adult-algorithm")`).
+
+**Preset values**
+
+| Setting | loosest | looser | tighter | tightest | Role |
+|-----------|---------|--------|---------|----------|------|
+| `overall_ht_min` (cm) | 50 | 120 | 142 | 147 | PIV lower HT limit (Adult Step 1) |
+| `overall_ht_max` (cm) | 244 | 230 | 213 | 208 | PIV upper HT limit (Adult Step 1) |
+| `overall_wt_min` (kg) | 20 | 30 | 36 | 39 | PIV lower WT limit (Adult Step 1) |
+| `overall_wt_max` (kg) | 500 | 270 | 159 | 136 | PIV upper WT limit (Adult Step 1) |
+| `overall_bmi_min` | 5 | 12 | 16 | 18 | PIV lower BMI limit (Adult Step 1); applied only when wider than the single-value BMI limits (at the presets, loosest only); at the other levels they equal the single-value limits, applied at Adult Step 13 |
+| `overall_bmi_max` | 300 | 65 | 45 | 40 | PIV upper BMI limit (Adult Step 1); applied only when wider than the single-value BMI limits (at the presets, loosest only); at the other levels they equal the single-value limits, applied at Adult Step 13 |
+| `single_ht_min_bmi` (cm) | 60 | 120 | 142 | 147 | 1D HT lower limit when BMI available (Adult Step 13) |
+| `single_ht_max_bmi` (cm) | 245 | 230 | 213 | 208 | 1D HT upper limit when BMI available |
+| `single_wt_min_bmi` (kg) | 12 | 30 | 36 | 39 | 1D WT lower limit when BMI available |
+| `single_wt_max_bmi` (kg) | 350 | 270 | 159 | 136 | 1D WT upper limit when BMI available |
+| `single_ht_min_nobmi` (cm) | 120 | 120 | 142 | 147 | 1D HT lower limit when BMI not available |
+| `single_ht_max_nobmi` (cm) | 245 | 230 | 213 | 208 | 1D HT upper limit when BMI not available |
+| `single_wt_min_nobmi` (kg) | 30 | 30 | 36 | 39 | 1D WT lower limit when BMI not available |
+| `single_wt_max_nobmi` (kg) | 350 | 270 | 159 | 136 | 1D WT upper limit when BMI not available |
+| `single_bmi_min` | 10 | 12 | 16 | 18 | 1D BMI lower limit |
+| `single_bmi_max` | 250 | 65 | 45 | 40 | 1D BMI upper limit |
+| `wtallow_formula` | PW-H (`"piecewise"`) | PW-H (`"piecewise"`) | PW-L (`"piecewise-lower"`) | allofus15 (`"allofus15"`) | Weight-allowance formula family (see `vignette("adult-algorithm")`; allofus15 is adapted from Guide et al. (2024), full citation there). Affects Adult Steps 9Wa, 9Wb, 11Wa, 11Wa2, 11Wb. |
+| `perclimit_low` (wt ≤45 kg) | 0.5 | 0.5 | 0.7 | 0.7 | Percentage limit (Adult Steps 11Wa, 11Wb) |
+| `perclimit_mid` (wt 45–80 kg) | 0.4 | 0.4 | 0.4 | 0.4 | Percentage limit |
+| `perclimit_high` (wt >80 kg) | 0 (disabled) | 0 (disabled) | 0.4 | 0.4 | Percentage limit |
+| `mod_ewma_f` | 0.75 | 0.75 | 0.60 | 0.60 | Moderate EWMA directional factor (Adult Step 11Wb) |
+| `error_load_threshold` | 0.41 | 0.41 | 0.29 | 0.29 | Error ratio above which all remaining Includes excluded (Adult Step 14). Strict `>`. |
+| `ht_band` (inches) | 3 | 3 | 2 | 2 | Height band tolerance (Adult Step 10H). Converted to cm via `× 2.54 + 0.12`. |
+| `allow_ht_loss` | TRUE | FALSE | FALSE | FALSE | Whether height loss over time is allowed (Adult Step 10H) |
+| `allow_ht_gain` | TRUE | TRUE | TRUE | FALSE | Whether height gain over time is allowed (Adult Step 10H) |
+| `repval_handling` | independent | independent | linked | linked | Repeated-value handling mode (Adult Steps 2W, 9Wb, 11Wb) |
+
+To change one or a few without switching preset, pass them in the `adult_overrides` named list to `cleangrowth()` — e.g. `cleangrowth(df, adult_permissiveness = "tighter", adult_overrides = list(overall_ht_min = 120))`. The names must match the setting names in the table above; an unrecognized name is an error. (The value replaces the preset value for adult rows; it has no effect on child rows.)
+
+### 1E. Removed arguments
+
+`include.carryforward` and `weight_cap` are not valid `cleangrowth()` arguments. Use `cf_rescue` in place of `include.carryforward`, and `adult_scale_max_lbs` in place of `weight_cap`. For the full list of arguments removed since growthcleanr 2.2.3, see "Removed and renamed arguments" in `vignette("experienced-start-here")`.
+
+---
+
+## 2. Hardcoded thresholds (child)
+
+### 2A. Preprocessing, Z-score calculation (wrapper phases, but scoped to child path)
+
+See Section 4 for preprocessing-level values that apply before dispatch.
+
+### 2B. Early Child Step 13 (SDE-Identicals)
+
+| Threshold | Value | Location | Role |
+|-----------|-------|----------|------|
+| Age-dependent tiebreaker (birth) | `agedays == 0` → keep lowest `internal_id` | `cleanchild`, Early Child Step 13 inline block | Prefer earliest measurement at birth (before postnatal fluid shifts) |
+| Age-dependent tiebreaker (other) | keep highest `internal_id` | `cleanchild`, Early Child Step 13 | Prefer later measurement (likely more careful) |
+
+### 2C. Child Step 5 (Temporary SDE)
+
+| Threshold | Value | Location | Role |
+|-----------|-------|----------|------|
+| Fallback SP median is NA | use DOP median | `identify_temp_sde()` in `child_clean.R` | Use cross-parameter median when subject-parameter median unavailable |
+| Fallback both medians NA | treat 0 as median (`absdmedian.spz = |tbc.sd|`) | `identify_temp_sde()` | Graceful degradation when no reference point |
+| Fallback DOP median NA | `absdmedian.dopz = Inf` (sorts last) | `identify_temp_sde()` | Deprioritize rows with no DOP reference |
+
+### 2D. Child Step 6 (Carried Forwards)
+
+| Threshold | Value | Location | Role |
+|-----------|-------|----------|------|
+| CF detection | Exact equality on `v.orig`; prior unique ageday must have exactly one measurement | `cleanchild` Child Step 6 (detection) | Row is CF when `!is.na(prior_single_val) & v.orig == prior_single_val` |
+| `imperial` WEIGHTKG | `abs(x - round(x)) < 0.01` where `x = v.orig * 2.20462262` | `cleanchild` Child Step 6 (`cf_detail`) | Whole pounds detection, within 0.01 lb in either direction (design-aid column) |
+| `imperial` HEIGHTCM / HEADCM | `abs(x - round(x / 0.5) * 0.5) < 0.01` where `x = v.orig / 2.54` | `cleanchild` Child Step 6 (`cf_detail`) | Whole or half inches detection, within 0.01 in in either direction (design-aid column) |
+| Standard rescue (with next value) | `cf_deltaz + cf_nextz <= 1` AND `cf_deltaz <= 1.5` | `cleanchild` Child Step 6 (rescue decision) | Decided on each string's last CF, applied to the whole string |
+| Standard rescue (no next value) | `cf_deltaz <= 0.5` if `agedays < 13*365.25`, else `cf_deltaz <= 1` | `cleanchild` Child Step 6 (rescue decision) | End-of-series age fallback |
+
+`cf_deltaz = absdiff = |sd.orig - originator_z|`; `cf_nextz` = signed z-change to the next Included value. See `vignette("cf-rescue")` for the full rule and rationale.
+
+### 2E. Child Step 7 (PIV) — absolute thresholds
+
+All strict `<` or `>`. Standardized z cutoffs (configurable) are in Section 1B.
+
+| Threshold | Value | Scope | Role |
+|-----------|-------|-------|------|
+| WEIGHTKG low, year 1 | `v < 0.2` kg | `agedays <= 365` | Published minimum viable birth weight |
+| WEIGHTKG low, after year 1 | `v < 1` kg | `agedays > 365` | Minimum plausible outpatient weight |
+| WEIGHTKG high at birth | `v > 10.5` kg | `agedays == 0` | Maximum plausible birth weight |
+| WEIGHTKG high, under 2y | `v > 40` kg | `ageyears < 2` | Highest plausible weight under 2y |
+| WEIGHTKG high, any age | `v > 600` kg | All ages | Published maximum human weight |
+| HEIGHTCM low | `v < 18` cm | All ages | — |
+| HEIGHTCM high | `v > 244` cm | All ages | Published maximum |
+| HEIGHTCM high at birth | `v > 65` cm | `agedays == 0` | — |
+| HEADCM low | `v < 13` cm | All ages | — |
+| HEADCM high | `v > 75` cm | All ages | Published maximum |
+| HEADCM high at birth | `v > 50` cm | `agedays == 0` | Birth maximum |
+| BMI low (same-day WT x HT) | BMI `< 3` | All ages | Impossible weight-height combination; runs after the individual limits |
+| BMI high, under 2y | BMI `> 50` | `ageyears < 2` | Impossible weight-height combination |
+| BMI high, 2y and over | BMI `> 150` | `ageyears >= 2` | Impossible weight-height combination |
+| Standardized-PIV age boundary | `ageyears < 1` vs `ageyears >= 1` | Child Step 7 standardized block | Splits the HT lower cutoff into "young" and "old" bands |
+| Guard pattern | `!grepl("^Exclude-C-PIV$", exclude)` | Child Step 7 standardized block | Skip rows just assigned `Exclude-C-PIV` by absolute block |
+
+### 2F. Child Step 9 (Evil Twins)
+
+| Threshold | Value | Location | Role |
+|-----------|-------|----------|------|
+| OTL threshold | both `|tbc.sd_next - tbc.sd_current| > 5` AND `|ctbc.sd_next - ctbc.sd_current| > 5` (strict, dual); each outer neighbor anchors its adjacent inner value to within 3 on `tbc.sd` or `ctbc.sd` | `calc_otl_evil_twins()` in `child_clean.R` | Adjacent extreme pair |
+| Pre-filter count | `sp_count_9 >= 4L` | `cleanchild` Child Step 9a | Requires 4+ eligible values per subject-param (an A,B,C,D group is the floor) |
+| Minimum valid rows | `< 4L` breaks group loop | `cleanchild` Child Step 9b | Stop iteration when fewer than 4 eligible rows remain |
+| Tiebreaker | lowest `internal_id` | `cleanchild` Child Step 9b | Deterministic (not age-dependent) |
+
+### 2G. Child Step 11 (EWMA1 — Extreme EWMA)
+
+| Threshold | Value | Location | Role |
+|-----------|-------|----------|------|
+| Count pre-filter | skip subject-params with `<= 2` Include values | `cleanchild` Child Step 11a | EWMA needs 3+ points |
+| Extreme pre-filter | skip if no Include has `|tbc.sd| > 3.5` | `cleanchild` Child Step 11a | Cheap bypass for subject-params that can't meet criterion |
+| EWMA exponent, gap ≤ 1y | `-1.5` | `cleanchild` Child Step 11b (age-gap-dependent exponent) | Less negative → nearby neighbors carry more weight |
+| EWMA exponent, gap ≥ 3y | `-3.5` | `cleanchild` Child Step 11b | More negative → only closest values carry weight |
+| EWMA exponent interpolation | `-1.5 - (ageyears - 1)` for gap between 1 and 3y | `cleanchild` Child Step 11b | Linear interpolation |
+| Positive outlier `dewma.all` | `> 3.5` | `cleanchild` Child Step 11b pot_excl | Strict |
+| Positive outlier `dewma.before` | `> 3` | Same | Strict |
+| Positive outlier `dewma.after` | `> 3` | Same | Strict |
+| Positive outlier `tbc.sd` | `> 3.5` | Same | Strict |
+| Positive outlier corrected | `c.dewma.all > 3.5` OR `ctbc.sd` is NA | Same | NA escape auto-satisfies for non-potcorr |
+| Negative outlier mirrors | `dewma.all < -3.5`, `dewma.before < -3`, `dewma.after < -3`, `tbc.sd < -3.5`, `c.dewma.all < -3.5` | Same | Mirrors positive side |
+| Plus/minus check | `tbc.p_minus - ewma.all > 3.5` AND `tbc.p_minus > 3.5` (mirrored with `tbc.p_plus` on the negative side; corrected versions also required) | `cleanchild` Child Step 11b | Protects a value when a ±5% weight or ±1 cm height/HC change would bring it within threshold |
+| Preterm catch-up protection | Members of an early catch-up increase in GA-corrected subjects are protected | `cleanchild` Child Step 11b | See `vignette("child-algorithm")` |
+| Endpoint rule | Last Include value never excluded; first/birth value NOT auto-protected (only via the preterm catch-up rule) | `cleanchild` Child Step 11b | EWMA one-sided at the last point; an extreme birth error should be catchable here |
+| Per-iteration exclusion cap | At most 1 per subject-param | `cleanchild` Child Step 11b | Prevents cascade |
+| Worst-value sort key | `abs(tbc.sd + dewma.all)` descending; tiebreaker lowest `internal_id` | `cleanchild` Child Step 11b | Combines z-score magnitude and EWMA deviation |
+
+### 2H. Child Step 13 (Final SDE Resolution)
+
+| Threshold | Value | Location | Role |
+|-----------|-------|----------|------|
+| One-day SDE-All-Extreme | `min_absdiff_rel_to_median > 2` (strict) | `cleanchild` Child Step 13 Phase B1 | If closest to median is > 2 SD away, all same-day values excluded |
+| EWMA SDE-All-Extreme | `min_absdewma > 1` (strict); on dates with GA-corrected values also `c.min_absdewma > 1` | `cleanchild` Child Step 13 Phase B2 | If closest EWMA-wise is > 1 SD away (on both frames when the values are corrected), all same-day values excluded |
+| Age-dependent tiebreaker | Same as Early Child Step 13 | `identify_temp_sde()` | Birth: lowest; other ages: highest |
+
+### 2I. Child Steps 15/16 (EWMA2 — Moderate EWMA)
+
+Perturbation magnitudes:
+
+| Parameter | Value | Scope |
+|-----------|-------|-------|
+| WEIGHTKG `p_plus` | `1.05 × v` | Child Step 15 pre-calc |
+| WEIGHTKG `p_minus` | `0.95 × v` | Child Step 15 pre-calc |
+| HEIGHTCM `p_plus` | `v + 1` cm | Child Step 15 pre-calc |
+| HEIGHTCM `p_minus` | `v - 1` cm | Child Step 15 pre-calc |
+| HEADCM `p_plus` | `v + 1` cm | Child Step 15 pre-calc |
+| HEADCM `p_minus` | `v - 1` cm | Child Step 15 pre-calc |
+
+`addcrit` thresholds: all `> 1` (high) or `< -1` (low), strict.
+
+Child Step 15 exclusion rules (all thresholds strict, hardcoded):
+
+| Rule | Position | Gap (days) | `dewma.all` | `c.dewma.all` | Extra condition |
+|------|----------|------------|-------------|---------------|-----------------|
+| middle | Not first/last | — | `> 1` / `< -1` | `> 1` / `< -1` | addcrit |
+| birth-WT | `agedays == 0` | next `< 365.25` | `> 3` / `< -3` | `> 3` / `< -3` | addcrit |
+| birth-WT-ext | `agedays == 0` | next `>= 365.25` | `> 4` / `< -4` | `> 4` / `< -4` | addcrit |
+| first | `first_meas` | next `< 365.25` | `> 2` / `< -2` | `> 2` / `< -2` | addcrit |
+| first-ext | `first_meas` | next `>= 365.25` | `> 3` / `< -3` | `> 3` / `< -3` | addcrit |
+| last | Last row | prev `< 2*365.25` | `> 2` / `< -2` | `> 2` / `< -2` | `abs(tbc_prev) < 2` |
+| last-high | Last row | prev `< 2*365.25` | `> abs(tbc_prev)` / `< -abs(tbc_prev)` | `> min(abs(tbc_prev), 3)` / `< -min(abs(tbc_prev), 3)` | `abs(tbc_prev) >= 2` |
+| last-ext | Last row | prev `>= 2*365.25` | `> 3` / `< -3` | `> 3` / `< -3` | `abs(tbc_prev) < 2`; DOP diff |
+| last-ext-high | Last row | prev `>= 2*365.25` | `> 1 + abs(tbc_prev)` / `< -1 - abs(tbc_prev)` | **`> 3` / `< -3`** | `abs(tbc_prev) >= 2`; DOP diff |
+
+DOP diff thresholds (last-ext, last-ext-high): `tbc.sd - tbc_dop > 4` or `< -4`.
+
+Child Step 16 (Birth HT/HC — separate step):
+
+| Rule | Gap to next | `dewma.all` | `c.dewma.all` |
+|------|-------------|-------------|---------------|
+| birth-HT-HC | `< 365.25` | `> 2` / `< -3` | `> 2` / `< -3` |
+| birth-HT-HC-ext | `>= 365.25` | `> 3` / `< -4` | `> 3` / `< -4` |
+
+### 2J. Child Step 17 (Height/HC Velocity)
+
+Velocity reference tables are reference-data (Section 4). Tolerance formulas below are hardcoded.
+
+**HEIGHTCM:**
+
+| Item | Value | Role |
+|------|-------|------|
+| Tanner age floor | midpoint age `≥ 18 months` | Only apply Tanner at or above this; row = `6 + 12 × floor(midpoint years)`, with midpoints of 18–24 months using the 30-month row |
+| max.ht.vel floor (always) | `2.54 cm` (1 inch) | Minimum allowable increase |
+| max.ht.vel floor (gap > 2 months) | `5.08 cm` | |
+| max.ht.vel floor (gap > 6 months) | `10.16 cm` | |
+| max.ht.vel floor (gap > 1 year) | `20.32 cm` | |
+| mindiff (Tanner, gap < 1y) | `0.5 × min.ht.vel × (gap_years)^2 - 3` | |
+| mindiff (Tanner, gap > 1y) | `0.5 × min.ht.vel - 3` | |
+| maxdiff (Tanner, gap < 1y) | `2 × max.ht.vel × (gap_years)^0.33 + 5.5` | |
+| maxdiff (Tanner, gap > 1y) | `2 × max.ht.vel × (gap_years)^1.5 + 5.5` | |
+| WHO age cap | `round(agedays / 30.4375)` capped at 24 | |
+| WHO gap→increment map | `<20d, 20–45, 46–75, 76–106, 107–152, 153–198, ≥200` → 1/1/2/3/4/6/6 months | |
+| WHO mindiff (<9m) | `who_mindiff × 0.5 - 3` | |
+| WHO maxdiff (<9m) | `who_maxdiff × 2 + 3` | |
+| WHO fallback (≥9m, no Tanner) | Same transform | |
+| Default mindiff (no ref) | `-3` cm | |
+
+**HEADCM:**
+
+| Item | Value | Role |
+|------|-------|------|
+| WHO gap→increment map | `46–75→2, 76–106→3, 107–152→4, 153–199→6`; gaps `<46` or `≥200` → NA (no 1-month bin; distinct from HT) | |
+| mindiff transform | `who_mindiff × 0.5 - 1.5` | Tighter than HT |
+| maxdiff transform | `who_maxdiff × 2 + 1.5` | Tighter than HT |
+| Default mindiff (no ref, or gap outside 46–199) | `-1.5` cm | |
+
+**Violation condition:** `diff_prev < mindiff_prior` OR `diff_next < mindiff` OR `diff_prev > maxdiff_prior` OR `diff_next > maxdiff`. Strict inequalities.
+
+**Resolution with 3+ measurements:** EWMA-based tiebreaker (`bef.g.aftm1`, `aft.g.aftm1`), internal_id tiebreaker. **Resolution with 2 measurements:** Higher `abs(tbc.sd)`, internal_id tiebreaker.
+
+### 2K. Child Step 19 (Pairs and Singles)
+
+| Threshold | Value | Role |
+|-----------|-------|------|
+| Pair, gap ≥ 365.25 | `|diff_tbc| > 4` AND `|diff_ctbc| > 4` (or NA) | Large-gap pair |
+| Pair, gap < 365.25 | `|diff_tbc| > 2.5` AND `|diff_ctbc| > 2.5` (or NA) | Small-gap pair |
+| Single with DOP | `|tbc.sd| > 3` AND `comp_diff > 5` | Single-measurement exclusion with cross-check |
+| Single without DOP | `|tbc.sd| > 5` | Very extreme isolated measurement |
+| Gap boundary | `365.25` days (inclusive ≥ vs strict <) | |
+
+### 2L. Child Step 21 (Error Load)
+
+Configurable thresholds in Section 1B. Hardcoded component:
+
+| Item | Value |
+|------|-------|
+| `non_error_codes` list | `Exclude-C-Identical`, `Exclude-C-Extraneous`, `Exclude-C-CF`, `Exclude-Missing`, `Exclude-Not-Cleaned` |
+
+Note: `Exclude-C-Temp-Same-Day` is NOT in `non_error_codes`. By the time Child Step 21 runs, Child Step 13 has resolved every temp SDE; any `Exclude-C-Temp-Same-Day` row at this point would be a bug and would correctly count as an error.
+
+---
+
+## 3. Hardcoded thresholds (adult)
+
+All adult threshold comparisons apply the 0.12 cm/kg rounding tolerance unless explicitly noted otherwise.
+
+### 3A. Global
+
+| Threshold | Value | Location | Role |
+|-----------|-------|----------|------|
+| Adult rounding tolerance | `0.12` cm/kg | All adult comparisons | Added to threshold comparisons (not BMI) |
+| Adult EWMA exponent | `-5` | All adult EWMA steps | More negative than child's `-1.5` |
+| Adult EWMA anchor | `0` | All adult EWMA steps | |
+| BMI formula | `weight_kg / (height_cm / 100)²` | Multiple | |
+
+### 3B. Adult Step 1 (PIV)
+
+Configurable HT/WT/BMI limits in Section 1D. Guard:
+
+| Item | Value | Role |
+|------|-------|------|
+| BMI PIV guard | Runs only when `overall_bmi_min < single_bmi_min` OR `overall_bmi_max > single_bmi_max` | Skip BMI-PIV when 1D limits are already tighter |
+| BMI PIV rounding tolerance | Not applied | Unlike other comparisons, BMI PIV uses exact values |
+
+### 3C. Adult Step 4W (Scale Max)
+
+| Threshold | Value | Role |
+|-----------|-------|------|
+| Scale cap conversion | `round(adult_scale_max_lbs / 2.2046226, 1) ± 0.1` kg | Convert lbs to kg with detection tolerance |
+| `dewma50p` threshold | `dewma_all > 50 + 0.12` | Large positive deviation |
+| `dewma50p` before/after | `> 45 + 0.12` (0.9 × 50) | Directional check |
+| `dewma50m` mirror | `< -(50 + 0.12)`; before/after `< -(45 + 0.12)` | |
+| d50p adjacency | `d_prev > 50 + 0.12` AND `d_next > 50 + 0.12` | |
+| Missing adjacency neighbors | Treated as +Inf (positive) / -Inf (negative) | Confirms exclusion at edges |
+| Minimum included | 2+ | |
+
+### 3D. Adult Step 9Wa (Evil Twins)
+
+| Threshold | Value | Role |
+|-----------|-------|------|
+| Interval boundary | `≤6m` vs `>6m` | Two ET-cap tiers |
+| Minimum values | 4+ eligible weights (A, B, C, D), re-checked every iteration | Count gate |
+| Out-of-line inner pair | `abs(B - C) > ET cap(B,C) + 0.12` | Candidate pair |
+| Anchors | `abs(A - B) ≤ 0.60 × ET cap(A,B) + 0.12` and `abs(C - D) ≤ 0.60 × ET cap(C,D) + 0.12`; a missing A or D disqualifies the pair | Anchor rule |
+| Median-band tiebreak | windowed median ±4 positions; band width `0.20 × ET cap` | Worst-value selection |
+| UER3 ratio | unit-error-group / plausible-group mean weight ratio in `[1.7, 2.7]` | Unit-error two-group split |
+
+### 3E. Adult Step 9H (Final SDE Height)
+
+| Threshold | Value | Role |
+|-----------|-------|------|
+| Category 2 | `daystot >= 4` AND `sderatio < 0.5` | |
+| Category 3 | `daystot == 2` or `3` OR `sderatio >= 0.5` | |
+| Identical tiebreaker | lowest `internal_id` | |
+| Non-identical tiebreaker | highest `internal_id` | Differs from Category 2 identical |
+
+### 3F. Adult Step 9Wb (Extreme EWMA)
+
+| Threshold | Value | Role |
+|-----------|-------|------|
+| Positive outlier (all) | `dewma_all > threshold + 0.12` | Main criterion |
+| Positive outlier (before/after) | `dewma_before > 0.9 × threshold + 0.12` AND `dewma_after > 0.9 × threshold + 0.12` | Directional |
+| Negative outlier | Mirrors of positive with `<` | |
+| Directional factor | `0.9` | Before/after relaxation |
+| Missing directional | Treated as Inf (confirms exclusion) | |
+| Minimum non-extraneous | 3+ | |
+| Threshold source | `compute_et_limit(min_gap_months, formula, uw)` where `uw = max(wt, ewma_all)` | |
+| Round limit | None (R implementation) | |
+
+### 3G. Adult Step 10H (Height Distinct)
+
+| Threshold | Value | Role |
+|-----------|-------|------|
+| Effective band | `ht_band × 2.54 + 0.12` cm | Converts inches to cm |
+| Gain rescue age boundary | `ageyears1 < 25` | Below this age, allow height gain |
+| htallow formula | `velocity × (ln(age2 - 16.9) - ln(age1 - 16.9))` | |
+| htallow coefficient (gap <2yr) | 15.5 | 2D gain |
+| htallow coefficient (gap 2–3yr inclusive) | 13 | 2D gain |
+| htallow coefficient (gap >3yr) | 12 | 2D gain |
+| Age cap for htallow | 25 | |
+| Gain rescue tolerance | `(htallow + 2) × 2.54 + 0.12` cm | 2-inch buffer |
+| Loss rescue tolerance (age <50) | `5 × 2.54 + 0.12` cm | 5 inches |
+| Loss rescue tolerance (age ≥50) | `7 × 2.54 + 0.12` cm | 7 inches |
+| Frequency rescue ratio | `count ≥ count × 4/3` | |
+| w2 window step | `ht_band × 2.54 + 0.12` cm | |
+| w2/o2 ratio minimum | `≥ 3/2` | |
+| w2 selection score | `tot_w2 + 0.5 × numdistinct_w2` | |
+| Loss group band | `2 inches = 5.08 + 0.12 cm` | |
+| Loss group max count | 3 | |
+| Gain group max count | 6 | |
+| Loss group cumulative limit | `6/8/9 inches` depending on age pattern | |
+| Gain group htallow (<1yr) | 20 | |
+| Gain group htallow (1–3yr) | 15 | |
+| Gain group htallow (>3yr) | 12 | |
+| Loss magnitude 3D (age <50) | `≤ 5 inches` | |
+| Loss magnitude 3D (age ≥50) | `≤ 7 inches` | |
+
+### 3H. Adult Step 11Wa (2D Ordered Weight)
+
+| Threshold | Value | Role |
+|-----------|-------|------|
+| Rounding tolerance | `0.12` kg | |
+| wtallow source | `compute_wtallow(months, formula, uw)` (see `vignette("adult-algorithm")`) | |
+
+### 3I. Adult Step 11Wa2 (2D Non-Ordered Weight)
+
+| Threshold | Value | Role |
+|-----------|-------|------|
+| Rounding tolerance | `0.12` kg | |
+| Dominance threshold | `dominant_pct > 0.65` (strict) | |
+| Interval conversion | `abs(age_days[i+1] - age_days[i]) / 30.4375` | Days to months |
+| Prior non-SDE exclusion set | `Include`, temp extraneous, `Exclude-A-Identical`, `Exclude-A-Extraneous`, empty, NA | |
+
+### 3J. Adult Step 11Wb (Moderate EWMA)
+
+| Threshold | Value | Role |
+|-----------|-------|------|
+| Minimum distinct values | 3+ | |
+| Minimum included | 3+ | |
+| Standard pathway main | `|dewma_all| > wtallow + 0.12` | |
+| Standard pathway directional | Both directional `> mod_ewma_f × wtallow + 0.12` (same direction) | |
+| Trajectory rescue error margin | `±5 kg` | |
+| Trajectory rescue rounding | Nearest 0.2 kg | |
+| Extrapolation distance | `≤ 2× source interval` | |
+| Run-length thresholds | 4+ consecutive → error load; 1 → isolated; 2–3 → pair/trio | |
+| Unreliable neighbor threshold | `≤ 14 days` AND `> wtallow apart` | |
+| Alternate pathway criterion | `|dewma_all| > wtallow + 0.12` AND `|dewma_aft| > 0.75 × wtallow + 0.12` (or `|dewma_bef|`) | |
+| Alternate pathway factor | `0.75` | Relaxed directional factor |
+| Percentage criterion | `wt/ewma_all < perclimit` AND `wt/ewma_bef < perclimit` AND `wt/ewma_aft < perclimit` | All three must pass |
+| Graduated scoring multiplier | `min(1.0, 0.6 + 0.4 × min_excess)` | |
+| Edge scoring formula | `pmax(0, |dewma_all| - wta) / wta_base` | |
+| `wta_base` | wtallow at `UW = 120` (no adjustment) | |
+| `max_rounds` | 100 | Maximum iterations of the moderate EWMA loop; the same at every permissiveness level and not changeable |
+
+### 3K. Adult Step 13 (Single Distinct 1D)
+
+All limits configurable (Section 1D). No additional hardcoded thresholds besides BMI formula.
+
+### 3L. Adult Step 14 (Error Load)
+
+| Threshold | Value | Role |
+|-----------|-------|------|
+| Minimum denominator | `≥ 3` | |
+| SDE excluded from counts | `Exclude-A-Identical`, `Exclude-A-Extraneous` | |
+| RV-propagated codes | Excluded from error count | |
+
+---
+
+## 4. Reference-data-driven values
+
+### 4A. Growth reference tables (`inst/extdata/`)
+
+| File | Loaded by | Consumed by | User-overridable? |
+|------|-----------|-------------|-------------------|
+| `growthfile_who.csv.gz` | `read_anthro()`, `gc_preload_refs()` | Z-score calculation (wrapper preprocessing) | Via `ref.data.path` |
+| `growthfile_cdc_ext_infants.csv.gz` | `read_anthro()`, `gc_preload_refs()` | Z-score calculation | Via `ref.data.path` |
+| `fent_foraga.csv.gz` | `cleangrowth()` Phase 10 (GA correction) | Approximated Fenton median weights by gestational age (weight → GA) for potcorr | No (always read from the installed package) |
+| `fenton2025_ms_lookup_smoothed.csv` | `cleangrowth()` Phase 10 | Approximated Fenton CSD values (M, S_upper, S_lower) for corrected z-scores | No (always read from the installed package) |
+| `rcfile-resmoothed.csv.gz` | Recentering (Phase 11) | `rcmedian.sd` lookup for recentering | Via the `sd.recenter` argument; the file location can also be changed with `ref.data.path` |
+| Tanner height velocity table (Tanner and Davies, 1985) | `cleanchild` Child Step 17 | HT velocity tolerance | Via `ref.data.path` |
+| WHO HT velocity table (WHO growth velocity standards, 2009) | `cleanchild` Child Step 17 | HT velocity (<9m) | Via `ref.data.path` |
+| WHO HC velocity table (WHO growth velocity standards, 2009) | `cleanchild` Child Step 17 | HC velocity | Via `ref.data.path` |
+
+### 4B. Lookup tables defined in code
+
+| Lookup | Location | Consumed by | Overridable? |
+|--------|----------|-------------|--------------|
+| DOP mapping | WT↔HT, HC→HT | `get_dop()` in `child_clean.R` | Not overridable |
+| Adult permissiveness presets | Section 1D values | `resolve_permissiveness()` in `adult_support.R` | Override individual params via `cleangrowth(adult_overrides = list(...))` |
+| Adult wtallow formulas (PW-H, PW-L, allofus15) | `compute_wtallow()` / `compute_et_limit()` in `adult_support.R`; full spec in `vignette("adult-algorithm")` | Adult Steps 9Wa, 9Wb, 11Wa, 11Wa2, 11Wb | Custom CSV also supported |
+
+The current CF-rescue rule (deltaz/nextz) is documented in `vignette("cf-rescue")`. The full wtallow formula spec is in `vignette("adult-algorithm")`.
+
+### 4C. Z-score / age-blending constants
+
+| Item | Value | Location |
+|------|-------|----------|
+| WHO-only range (HT/WT) | `< 2 years` | Z-score infrastructure |
+| WHO/CDC blend range (HT/WT) | `2–5 years`; formula `(cdc × (age-2) + who × (5-age)) / 3` | Z-score infrastructure |
+| CDC-only range (HT/WT) | `> 5 years` | Z-score infrastructure |
+| HEADCM age policy | WHO only at all ages (z-source available through 5y); cleaned only through 5y | Z-score infrastructure |
+| HEADCM age cutoff | `agedays > 5 × 365.25` → `Exclude-Not-Cleaned` (WHO HC z-score reference ends at 5y; the recentering file provides HC `rcmedian.sd` through 5y); re-asserted post-recentering at `agedays > 5 × 365.25` | Preprocessing + Phase 11 |
+| Imperial → metric (HEIGHTIN) | `× 2.54` | Preprocessing Phase 7 |
+| Imperial → metric (WEIGHTLBS) | `÷ 2.2046226` | Preprocessing Phase 7 |
+| Sex encoding | Default `sex_coding` (case-insensitive): `0`/`"m"`/`"b"`/`"male"`/`"boy"` → 0L; `1`/`"f"`/`"g"`/`"female"`/`"girl"` → 1L; see `sex_coding` in Section 1A | Preprocessing Phase 3 |
+| `measurement == 0 → NaN` | Hardcoded conversion | Preprocessing Phase 3 |
+
+### 4D. Gestational Age Correction (Child Step 2b / Phase 10)
+
+| Item | Value | Role |
+|------|-------|------|
+| potcorr_wt condition | First weight for subject AND `sd.orig < -2` AND `age < 10 months` | Flag potentially preterm subject |
+| `intwt` formula | `trunc(v × 100) × 10` (grams) | Integer weight for GA-reference merge |
+| `intwt` floor | Values in `[100, 500)` → `500` | Clamp low values to GA-reference table minimum |
+| `pmagedays` | `agedays + fengadays` | Postmenstrual age in days |
+| `cagedays` | `pmagedays - 280` | Corrected age (days) |
+| GA-correction term cutoff | `fengadays < 259` | Below this → considered preterm for correction |
+| GA-reference weight scaling | `v_fenton = v × 1000` for WT; `v` otherwise | GA-reference table is in grams |
+| GA-reference CSD z-score | `(v_fenton − M) / (S_upper × M)` if `v_fenton >= M`, else `/ (S_lower × M)` | Split-normal CSD |
+| Recumbent/standing offset (WHO and CDC) | `+0.7 cm` (`.gc_len_offset`, shared with `length.adjust`); boundary day 730 (`.gc_ht_start_day`) | Chronological age at or past day 730 but corrected age before day 730; under the default the same 0.7 cm is first subtracted from the value used for the uncorrected z (see `vignette("wrapper")`, Phase 8, fact 6) |
+| GA-reference precedence ≤ 2y | `sd.c := unmod_zscore` when `ageyears_2b ≤ 2` | |
+| Smoothing range | 2–4 years; formula `(sd.orig × (4 - age) + sd.c × (age - 2)) / 2` | |
+| Above-4y policy | `sd.corr = sd.orig` | |
+| uncorr revert rule | Revert correction if `sd.corr_abssumdiff > sd.orig_abssumdiff` | Correction worsens trajectory |
+| uncorr window | First 4 weights AND `ageyears_2b < 2` | Where revert check runs |
+
+The confirm-correction rule (a same-day HT or HC may corroborate a corrected first weight, capped at 3.5 z) is described in `vignette("wrapper")` (Phase 4) and `vignette("child-algorithm")` (Child Step 2b).

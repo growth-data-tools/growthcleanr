@@ -1,0 +1,157 @@
+---
+title: "How to get your data into CSV format and back out again"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{How to get your data into CSV format and back out again}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\usepackage[utf8]{inputenc}
+---
+
+A CSV (comma-separated values) file is a plain-text table: one row per line, with the values in each row separated by commas. Almost every program that holds data, from Excel to the major statistical packages, can save a CSV.
+
+This article is only about the mechanical step of producing and using CSV files. What the input file needs to *contain* (the columns growthcleanr expects and how it reads sex and measurement types) is covered in the resources listed under [What a good CSV file looks like](#good-csv). In most situations, you will not have to rename your columns or recode anything before you export; you can tell growthcleanr about your column names and codings when you run it.
+
+**Go to the part you need:**
+
+- [Why you would need a CSV file](#why-csv)
+- [What a good CSV file looks like](#good-csv), for everyone who is making one
+- [Making a CSV file from Excel](#from-excel), also Google Sheets and Apple Numbers
+- [Exporting a CSV file from REDCap](#redcap)
+- [Reading a CSV file into R](#read-into-r), for the R interface only; Shiny app users can skip this
+- [Getting your results out as a CSV file](#results-out), including opening results in Excel
+- [Using data from SAS, Stata, or SPSS](#stats-software), through a CSV file or directly in R
+- [Troubleshooting merging on converted data](#merge-troubleshooting), when values that look the same do not match
+
+# Why you would need a CSV file {#why-csv}
+
+**For the Shiny app, you need one.** The app reads CSV files (tab- and semicolon-separated `.txt` and `.tsv` files also work) and saves its results as a CSV file.
+
+**For the R interface, you have options.** In many situations, a CSV file is the easiest and most flexible way to get data into R, but it is not required. You can use data already loaded in R as a data frame. You can read an Excel sheet directly with the `readxl` package (see [below](#from-excel)). You can also use the `haven` package to import and export data in SAS, SPSS, or Stata format (see [below](#stats-software)). If you have a large dataset, we recommend importing from a CSV file using the `data.table` `fread()` command, because it is often much faster than other methods.
+
+# What a good CSV file looks like {#good-csv}
+
+Further details about data formatting are in the how-to guides for the [Shiny app](https://growthcleanr.org/articles/how-to-shiny.html) and the [R interface](https://growthcleanr.org/articles/how-to-r.html), and in `vignette("example-scripts")`.
+
+You want one plain table saved as a `.csv` file:
+
+- **One header row, then data.** The first row holds the column names, and there is only one such row. Each later row follows one of three layouts: long (one measurement per row), semi-wide (one visit per row), or wide (one subject per row).
+- **Nothing else in the file.** Delete any title rows, notes, blank spacer rows, and summary or total rows.
+- **Numbers as plain numbers.** Make sure the decimal marker is a period.
+- **No commas in your values, when possible.** Commas separate the columns in a CSV file, so a comma within a value, such as `1,234`, can cause problems when the file is opened or read. We recommend removing commas when you can. A number can also display with a comma in Excel even though the number itself has none, and that comma can end up in the CSV file, so use a number format without the comma separator before you save. If your data need commas, other formats such as tab-delimited files can be used; we do not cover them here.
+- **No leading zeros in IDs.** We recommend removing all leading zeros from your IDs, because programs differ in how they read them. For example, `007` may be read as `7`. First check that removing the zeros will not make two different IDs identical, such as `007` and `7`.
+- **Missing values can be blank.** An empty cell is fine for a missing value; you do not need a special code.
+- **Dates in a consistent format, if you export them.** growthcleanr can take dates instead of age in days (see "Use dates instead of age in days" in `vignette("example-scripts")`). Text dates such as `2013-03-04` need no extra setting; number dates such as `3/4/2013` need you to tell growthcleanr the order with `date_order`.
+- **UTF-8 encoding.** Saving as UTF-8 (the "CSV UTF-8" option in Excel) keeps accented characters and symbols from turning into garbled text.
+
+# Making a CSV file from Excel {#from-excel}
+
+Excel can save any sheet as a CSV file directly.
+
+**Save the sheet you need.** A CSV file holds one table and cannot hold multiple sheets, but an Excel workbook can hold several. Open the sheet with your growth data before you export, and export that sheet.
+
+**Use Save As, not a rename.** In Excel, choose `File > Save As` (on some versions, `File > Export`), and for the file type choose **CSV UTF-8 (Comma delimited) (.csv)**. Give the file a name and save it. Renaming a `.xlsx` file to `.csv` in Finder or File Explorer does *not* convert it and will not work.
+
+**Check the file after you save it.** Excel sometimes reformats values on its own, for example turning a leading-zero code like `007` into `7`, or turning something that looks like a date into an actual date. Open the saved CSV file in a plain text editor and confirm a few rows look right. A text editor shows you what is actually in the file; Excel shows you its own interpretation of it.
+
+**Google Sheets and Apple Numbers work similarly.** In Google Sheets, use `File > Download > Comma-separated values (.csv)`. In Numbers, use `File > Export To > CSV`.
+
+**If you use the R interface, you can skip the CSV file.** The `readxl` package reads an Excel sheet directly into R with `readxl::read_excel("my_data.xlsx")`.
+
+# Exporting a CSV file from REDCap {#redcap}
+
+REDCap can export your data as a CSV file directly. Many other data systems offer a CSV export too.
+
+In your REDCap project, go to the **Data Exports, Reports, and Stats** page, choose to export your data, and select a CSV format. The exact wording can vary by REDCap version. **CSV / Microsoft Excel (raw data)** uses variable names as column headers and stored codes as values, and is usually the easier choice for analysis. The labels option uses the question text as headers and the answer text as values. You can tell growthcleanr about your column names and codings when you run it.
+
+# Reading a CSV file into R {#read-into-r}
+
+Shiny app users can skip this section; the app reads the file for you.
+
+```{r, eval = FALSE}
+library(data.table)  # provides fread() for fast loading of data
+my_data <- fread("my_data.csv")
+```
+
+# Getting your results out as a CSV file {#results-out}
+
+**From the Shiny app.** Use the app's save button once cleaning finishes. Your results are saved as a CSV file.
+
+**From R.** `cleangrowth()` returns a data frame. Use the `data.table` `fwrite()` command to export it to a CSV file.
+
+```{r, eval = FALSE}
+library(data.table)  # provides fwrite()
+cleaned_data <- cleangrowth(my_data)
+fwrite(cleaned_data, "my_results.csv")
+```
+
+**Be careful when opening results in Excel.** Excel can change values as soon as it opens a CSV file. A subject ID of `007` can become `7`, and a 16-digit ID can display as `1.23457E+15`. If you then save the file, those changes are written into it, and your results may no longer match your original data. Keep an untouched copy of the file, and do not save over it from Excel.
+
+# Using data from SAS, Stata, or SPSS {#stats-software}
+
+You have two routes: export a CSV file from the program your data already lives in, or read the program's own file format directly into R.
+
+## Exporting a CSV file from your statistical software
+
+You do not have to go through R. Most statistical software, including Stata, SAS, and SPSS, has a built-in option to export and import CSV files. This route also works for the Shiny app. For example, in Stata, export a CSV using `export delimited using "my_growth_data.csv", replace` and import using `import delimited using "my_results.csv", clear`.
+
+## Importing and exporting directly in R, using haven
+
+If you use the R interface, the `haven` package reads SAS, Stata, and SPSS files directly into R and can write them back out, so you can skip the CSV file entirely. `haven` is a separate package that you install yourself. This example uses Stata; see the [haven documentation](https://haven.tidyverse.org/) for the commands for SAS and SPSS.
+
+```{r, eval = FALSE}
+library(haven)
+library(growthcleanr)
+
+my_data <- read_dta("my_data.dta")            # read a Stata file
+cleaned_data <- cleangrowth(my_data)          # run growthcleanr
+write_dta(cleaned_data, "my_results.dta")     # write the results as a Stata file
+```
+
+**A note on labelled columns.** SPSS and Stata files often store coded columns (such as sex) together with value labels, and `haven` keeps these as a special "labelled" type. These columns can look unexpected when you view the data, but `cleangrowth()` uses the underlying codes, just as it would for ordinary numbers or text. A sex column coded 0 for male and 1 for female, or M for male and F for female, needs no changes.
+
+**If your sex column is coded 1 and 2.** `cleangrowth()` stops with an error rather than guess, because it treats 1 as female by default. Tell it your coding with `cleangrowth(my_data, sex_coding = list(male = 1, female = 2))`. If the labels are recognizable text such as Male and Female, you can instead convert the column to its labels with `my_data$sex <- haven::as_factor(my_data$sex)`.
+
+# Troubleshooting merging on converted data {#merge-troubleshooting}
+
+Converting data between formats can cause problems with merging, primarily because of differences in floating-point precision. For example, converting a data file between formats can result in a value like `7.1` being stored as `7.0999999`, because programs and file formats differ in how they store numbers. These differences may not be easily visible, because both values can display as `7.1`. A merge treats the two values as different, so rows that should match may not, and you may not get an error. Reducing the number of conversions helps, because each conversion is another chance for values to change. We made extensive efforts to avoid having growthcleanr introduce conversion issues, and `cleangrowth()` returns your values as entered. Saving results to a CSV file, including from the Shiny app, is itself a conversion: values with more than 15 significant digits can change.
+
+**Merge on an ID when you can.** Where possible, merge on an ID rather than on values with decimals. For growthcleanr results, the `id` column is a good choice: give each row a unique whole-number `id` before you run growthcleanr, and the results return it as entered.
+
+If you have trouble merging data after one or more conversions, you may consider trying the following steps. These steps are focused on floating-point precision, and do not address all conversion-related merging issues. Always check results after you merge.
+
+**Step 1: Try merging on rounded columns.**
+
+1. In both datasets, make a rounded version of the relevant column(s) to the desired precision. Round finely enough that values that are truly different stay different.
+2. Merge on the rounded columns.
+
+We typically recommend not rounding the column you will use for analysis; use the rounded version only for the merge.
+
+**Step 2: If that is not sufficient, try merging on integers after rounding.**
+
+Do step 1 first.
+
+- **For whole numbers:**
+
+    1. Use the rounded merge columns from the step above (not the original columns).
+    2. Convert the rounded values to integer format in both datasets.
+    3. Merge on the integers.
+
+- **For non-integers:**
+
+    1. Use the rounded merge columns from the step above (not the original columns).
+    2. Multiply the rounded values by a number sufficient to produce integers. For example, if your rounded values have 3 digits after the decimal point (such as `3.456`), multiply the rounded values in both datasets by 1000 (to produce `3456`).
+    3. Round the multiplied results again before you convert those columns to integers.
+    4. Convert the double-rounded values to integer format in both datasets.
+    5. Merge on the integer columns.
+
+The resources below give more background on how programs store numbers. They focus on comparing numbers rather than on merging specifically:
+
+- **General:** [The Floating-Point Guide: Comparison](https://floating-point-gui.de/errors/comparison/)
+- **R:** [Why doesn't R think these numbers are equal?](https://cran.r-project.org/doc/FAQ/R-FAQ.html#Why-doesn_0027t-R-think-these-numbers-are-equal_003f) (R FAQ 7.31)
+- **Stata:** [The penultimate guide to precision](https://blog.stata.com/2012/04/02/the-penultimate-guide-to-precision/)
+- **SAS:** [Numeric Precision in SAS Software](https://support.sas.com/documentation/cdl/en/lrcon/62955/HTML/default/a000695157.htm)
+
+---
+
+Once you have your data ready, the how-to guides for the [Shiny app](https://growthcleanr.org/articles/how-to-shiny.html) and the [R interface](https://growthcleanr.org/articles/how-to-r.html), along with `vignette("example-scripts")`, show how to run growthcleanr.

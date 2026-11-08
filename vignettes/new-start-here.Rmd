@@ -1,0 +1,79 @@
+---
+title: "Start here"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Start here}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\usepackage[utf8]{inputenc}
+---
+
+growthcleanr is an R package for identifying implausible values in growth data (weight, height, and head circumference) from electronic health records. This page is for people using growthcleanr for the first time, at any level of R experience. If you used growthcleanr before version 3.0, see `vignette("experienced-start-here")` instead, which describes what has changed. 
+
+growthcleanr is now available for use in three ways: the standard R interface, a Shiny app with a graphical user interface, and the command line (via a command-line driver).
+
+On growthcleanr.org, more detailed "How-To" guides with screenshots that walk you through using the software are available for the [Shiny app](https://growthcleanr.org/articles/how-to-shiny.html) and the [R interface](https://growthcleanr.org/articles/how-to-r.html). There is also a helpful [Researcher Overview](https://growthcleanr.org/growthcleanr-researcher-overview.pdf) that provides more information about what growthcleanr does and how to use the output. Those guides contain screenshots, and the file sizes are too large to include in the CRAN package, so they are available only on the website. Some information from those guides is replicated here in order to ensure it is available in the package itself.
+
+# What growthcleanr does
+
+growthcleanr automates many aspects of preparing anthropometric data (weight, height, and head circumference) for analysis. It evaluates an individual's growth pattern over time to identify implausible values. It is specifically designed not to flag true outliers (values outside the typical range that represent the individual's true growth) and to flag erroneous inliers (values inside the typical range that do not). When there are multiple values recorded for the same parameter on the same individual on the same day, it identifies the one that fits best with the individual's other measurements. It also identifies values likely to have been carried forward from a prior measurement. 
+
+growthcleanr flags values that it recommends excluding from analyses, but it does not delete any values. It is designed to be both reproducible and customizable. In many cases researchers can use default settings and simply exclude all flagged values. However, researchers can also customize many aspects of the algorithm, and can assess flagged values individually to determine whether they should be excluded.
+
+To see the details of how the algorithm reaches these decisions, see the technical documentation at `vignette("child-algorithm")`, `vignette("adult-algorithm")`, and `vignette("algorithm-functions")`.
+
+# Input and output
+
+For each measurement, growthcleanr needs a subject identifier (`subjid`), the measurement type (`param`), age in days (`agedays`), `sex`, and the `measurement` value, plus an optional row identifier (`id`) that makes results fully reproducible across runs. The standard growthcleanr format is long: one row for each measurement, with each of the above values provided in one column. But you can now input data in semi-wide or wide format. See the How-To guides for the [Shiny app](https://growthcleanr.org/articles/how-to-shiny.html) and the [R interface](https://growthcleanr.org/articles/how-to-r.html). For ready-to-run scripts, see "Semi-wide data (one row per visit)" and "Wide data (one row per subject)" in `vignette("example-scripts")`. If your columns have other names, or you have dates instead of age in days, see "Rename your columns" and "Use dates instead of age in days" in `vignette("example-scripts")`. The Shiny How-To guide also covers both, and the R How-To guide covers column names. Most people will input a CSV file. For information on how to produce the CSV file, see `vignette("csv-format")`.
+
+The main result is `exclude`, which is either `Include` or a short description of why the value was flagged, such as `Exclude-Pattern` for exclusion based on trajectory. The `bin_exclude` column collapses that to a simple `Include`/`Exclude` flag. The `unit_error_range` column is informational and marks values that fall in a range common for unit errors. For adults, `mean_ht` gives a mean height for the subject that can be used to calculate BMI when a height value is missing or excluded. Nothing is deleted. You build your analysis set by keeping the rows you want, commonly by restricting to the rows where `bin_exclude` is `Include`. For the full set of output columns see `vignette("output")`, and for the list of exclusion reasons see `vignette("exclusion-codes")`.
+
+# The four steps
+
+Working with growthcleanr has four steps: prepare your data in the format above, run `cleangrowth()`, review its recommendations, and build the analysis set you want. Before a full run, you can check your settings on a small sample; see "Check your setup first" in `vignette("example-scripts")`. This page is orientation only. For the steps in detail, see the How-To Guides on growthcleanr.org, one for the Shiny app and one for R.
+
+# Choose your path
+
+- **Point and click, no coding.** Use the Shiny app; see the [Shiny How-To Guide](https://growthcleanr.org/articles/how-to-shiny.html).
+- **Work in R.** See the [R How-To Guide](https://growthcleanr.org/articles/how-to-r.html). There are also example scripts with ready-to-run code (`vignette("example-scripts")`).
+- **Run it from a terminal, no R coding.** Use the command-line driver; see `vignette("command-line")`.
+- **Get your data into the right shape.** See `vignette("example-scripts")` for the input layouts and `vignette("csv-format")` for producing a CSV file.
+- **Change how the algorithm runs.** Adult permissiveness, carry-forward handling, recentering, and other settings are described in `vignette("configuration")`.
+- **Understand and assess the output.** See `vignette("output")` and `vignette("exclusion-codes")`, and the Researcher Overview on growthcleanr.org.
+- **Clean very large datasets.** See `vignette("large-datasets")` for checkpointing and parallel processing.
+- **See how the algorithm works inside.** Start with the Technical reference vignettes `vignette("child-algorithm")` and `vignette("adult-algorithm")`.
+- **Work with results after cleaning.** For BMI, reshaping, and related tasks, see `vignette("utilities")`.
+- **Used growthcleanr before version 3.0.** See `vignette("experienced-start-here")`.
+
+# Documentation in progress
+
+More detailed guidance about the following will be developed as resources allow:
+
+- Choosing an adult permissiveness level
+- Cleaning datasets with patients who cross between the child and adult algorithms
+- Handling carried-forward values
+- Comparing results with growthcleanr 2.2.3
+- Reporting growthcleanr cleaning in a Methods section
+- Background about how growthcleanr handles preterm and small-for-gestational-age infants
+- Background about the rationale for aspects of the algorithms
+- Worked examples for infants, head circumference, and unit errors
+
+Information about validation of the initial algorithm is in the 2017 JAMIA article below. Further information about validation and evaluation of additions and changes to the algorithm is [here](experienced-start-here.html#validation-and-review).
+
+# Installing growthcleanr
+
+growthcleanr is available from CRAN:
+
+```{r, eval = FALSE}
+install.packages("growthcleanr")
+```
+
+For other installation details, see the [README](https://github.com/growth-data-tools/growthcleanr#installation).
+
+# Citing growthcleanr and getting help
+
+If you use growthcleanr in published work, please cite the JAMIA paper describing the original algorithm:
+
+> Carrie Daymont, Michelle E Ross, A Russell Localio, Alexander G Fiks, Richard C Wasserman, Robert W Grundmeier, Automated identification of implausible values in growth data from pediatric electronic health records, Journal of the American Medical Informatics Association, Volume 24, Issue 6, November 2017, Pages 1080–1087, https://doi.org/10.1093/jamia/ocx037
+
+To report a bug or ask a question, open an issue on the [growthcleanr GitHub repository](https://github.com/growth-data-tools/growthcleanr/issues).

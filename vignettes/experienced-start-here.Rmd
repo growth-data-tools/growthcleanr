@@ -1,0 +1,466 @@
+---
+title: "Start here: Experienced users"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Start here: Experienced users}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\usepackage[utf8]{inputenc}
+---
+
+This is an introduction to version 3 for previous users of growthcleanr.
+
+**New: a point-and-click app.** growthcleanr now includes a Shiny app, so you can clean data without writing R code. Start it with `growthcleanr_app()`. The app walks you through loading a data file, mapping your columns, and running growthcleanr, and lets you save the results. It runs entirely on your own computer; nothing is uploaded. See the [Shiny app how-to guide](https://growthcleanr.org/articles/how-to-shiny.html).
+
+Additional instructions and documentation are available at [growthcleanr.org](https://growthcleanr.org).
+
+Major categories of changes include:
+
+- **Usability improvements**, including a simpler command, a ***Shiny app*** that facilitates use of growthcleanr without writing R code, return of a data.table instead of a vector, handling of semi-wide and wide data, ability to use date of birth and visit date to calculate age in days, expanded options for alternate column names and coding schemes, more user-relevant exclusion codes, and addition of an optional id variable to ensure complete replicability of results across growthcleanr runs.
+- **Many algorithm additions/improvements**, including improved handling of infant data, cleaning of head circumference, more refined handling of carried forwards, and a new "evil twins" step that identifies multiple abnormal values in a row. 
+- **Many efficiency improvements**
+- **Documentation improvements** including two new how-to guides: [Shiny app](https://growthcleanr.org/articles/how-to-shiny.html) and [R interface](https://growthcleanr.org/articles/how-to-r.html)
+
+More information on these changes is below. For a more concise list of changes, see the [changelog](https://growthcleanr.org/news/index.html). For further details of current behavior, see the technical documentation with `browseVignettes("growthcleanr")`.
+
+---
+
+# Updating code written for growthcleanr 2.2.3 {#updating-code}
+
+growthcleanr version 3 is designed to be easier to use than 2.2.3 (or prior versions), but scripts written for 2.2.3 need some changes. We apologize for any inconvenience to experienced users. **Because of the new data.table output and new exclusion codes, some code based on the old growthcleanr results format could produce wrong results.** Check your code for each item below. More differences are covered elsewhere; this section only covers old code that we expect was frequently used and will break or be silently wrong.
+
+**1. Results will differ from 2.2.3.** No setting reproduces 2.2.3 exactly. To reproduce an analysis done with 2.2.3, keep using 2.2.3 (see [Installing a prior version](#installing-a-prior-version)).
+
+**2. `cleangrowth()` returns a data table, not a vector.**
+
+```{r, eval = FALSE}
+
+# cleangrowth() uses columns named subjid, sex, agedays, param, and measurement, unless you specify other names.
+
+# Recommended code for version 3 using standard growthcleanr column names
+# Returns your data with results added
+cleaned <- cleangrowth(data)
+
+# Code for version 3 that returns only the exclude column, as a vector
+exclude_codes <- cleangrowth(data)$exclude
+
+# Closest to code for 2.2.3: name each argument and take $exclude. The code below stores it in a column named gcr_result.
+data[, gcr_result := cleangrowth(subjid = subjid, sex = sex,
+                                 agedays = agedays, param = param,
+                                 measurement = measurement)$exclude]
+
+# Old code (will no longer work)
+data[, gcr_result := cleangrowth(subjid, param, agedays, sex, measurement)]
+
+```
+
+growthcleanr also now takes an optional row id column. See [New id column](#new-id-column) below.
+
+Code that treats the result as a vector, such as `sum(cleaned == "Include")`, `df[cleaned == "Include", ]`, or `df$gcr_result <- cleaned` can run without an error and give NA, wrong counts, or the wrong rows; some forms stop with an error on a data.table. Use `cleaned$exclude` or `cleaned$bin_exclude` instead. To keep only included values: `analysis <- cleaned[exclude == "Include"]`. The returned columns are described in [The `cleangrowth()` output](#the-cleangrowth-output). If your data still has a `gcr_result` column from an earlier run, drop it first. `cleangrowth()` does not change user input data, so the prior `gcr_result` is carried through to the output unchanged.
+
+**3. Exclusion codes have new names.** Filters run after cleangrowth() for `exclude == "Include"` will still work, but filters for specific 2.2.3 codes, such as `exclude == "Exclude-Carried-Forward"` or `grepl("Adult", exclude)`, match nothing, and R gives no warning. Version 3 Summary codes do not show which algorithm cleaned a row, so select adult rows by age. (In `exclude_detailed`, `-A-` marks most adult exclusions, but not included rows.) Update any filters for specific exclusion codes using [Mapping from prior exclusion codes](#mapping-from-prior-exclusion-codes). If you previously had special handling for values excluded as carried-forwards, note that fewer values are excluded in this category now (see `vignette("cf-rescue")`), so you may wish to handle these differently.
+
+**4. Some arguments were removed or renamed.** For example, `num.batches` → `cores`, `include.carryforward` → `cf_rescue`, and `weight_cap` (kg) → `adult_scale_max_lbs` (pounds). A removed argument stops with a message naming what to use instead. Recentering options also changed: there is a new default recentering table based on clinical data, `sd.recenter = "nhanes"` and `sd.recenter = "derive"` are no longer available, and `sd.recenter = NA` (the 2.2.3 default) now uses the default built-in table. If you wish to supply your own recentering table, see "Custom recentering" in `vignette("recentering")`. See [Removed and renamed arguments](#removed-and-renamed-arguments).
+
+**5. Some functions were removed; their jobs are now handled within `cleangrowth()`.** `splitinput()` is replaced by checkpointing (see `vignette("large-datasets")`). `adjustcarryforward()`, `testacf()`, and `acf_answers()` are replaced by the `cf_rescue` argument (see `vignette("cf-rescue")`). `sd_median()` was replaced by a new recentering method (see `vignette("recentering")`).
+
+**6. The command-line driver moved and its flags changed.** The driver is now installed at `scripts/gcdriver.R` rather than `exec/gcdriver.R`, so shell scripts that point at the old path fail with "file not found". Find the new path with `gc_cli_path()`:
+
+```bash
+DRIVER=$(Rscript -e 'cat(growthcleanr::gc_cli_path())')
+Rscript "$DRIVER" input.csv output.csv
+```
+
+Flags were changed due to new options. Only long flags are accepted now; 2.2.3 short flags such as `-w`, `-s`, and `-n` now stop with an error. See `vignette("command-line")`.
+
+**7. `longwide()` and `ext_bmiz()` changed.** `ext_bmiz()` output keeps your column names: code that read `age`, `wt`, `ht`, or `bmi` from its output should use your own column names (for example `agem`). `longwide()` now returns sex as M or F, not 1 or 2, and its output can go directly to `simple_bmi()` and `ext_bmiz()`. We made this change because, for historical reasons, `cleangrowth()` and `longwide()` read numerical sex as 0=male and 1=female, while `ext_bmiz()` reads it as 1=male and 2=female. We recommend using M=male and F=female, which works the same for all three functions. Code that filters `longwide()` output on `sex == 1` or `sex == 2` will match no rows, without a warning; use `"M"` or `"F"` instead. `ext_bmiz()` now stops on numerical sex unless `sex` has both 1s and 2s and no other values, so recode single-sex data to M or F. If your code uses either function, see their sections in `vignette("utilities")` for the current arguments and output.
+
+## Changes that may simplify your workflow {#simplify-workflow}
+
+These are new options. Code that does not use them does not need to change.
+
+**New input formats are supported.** growthcleanr previously only worked for long data (one row per observation, with weight and height on separate rows). It can now handle semi-wide data (one row per visit, with weight, height, and head circumference on the same row) and wide data (one row per subject). Set `input_format = "semi_wide"` or `input_format = "wide"`; results come back in the same layout unless you set `output_format`. For ready-to-run scripts, see "Semi-wide data (one row per visit)" and "Wide data (one row per subject)" in `vignette("example-scripts")`. For full detail, see "Input format: long, semi-wide, and wide" in `vignette("wrapper")`. The [Shiny app](https://growthcleanr.org/articles/how-to-shiny.html) also handles these formats.
+
+**Additional input recognized.** For example, date of birth (`dob`) and visit date (`visit_date`) may now be entered instead of `agedays`. `sex` now accepts the following by default: 0=male, 1=female, M/F, Male/Female, B/G, Boy/Girl, any capitalization, as well as custom codes. For ready-to-run scripts, see "Use dates instead of age in days" and "Set your sex coding (including 1 = male, 2 = female)" in `vignette("example-scripts")`. For full detail on accepted date formats, see "Date parsing" in `vignette("wrapper")`. The [Shiny app](https://growthcleanr.org/articles/how-to-shiny.html) also handles dates and custom sex codes.
+
+---
+
+# Quick start for experienced users
+
+## Install the updated version
+
+**Note** If you already have an older growthcleanr installed, a) detach it if it is loaded `detach("package:growthcleanr", unload = TRUE)`, b) uninstall it `remove.packages("growthcleanr")`, c) restart R (important!), d) and then install using the instructions below.
+
+growthcleanr version 3 is available from CRAN:
+
+```{r, eval = FALSE}
+install.packages("growthcleanr")
+```
+
+## Basic command
+New option: pass a data frame directly (instead of vectors). 
+
+If your data is in standard growthcleanr format (described below) use the code below. For ready-to-run scripts for other formats (semi-wide, wide), column names, coding, etc. see `vignette("example-scripts")`; for parallel processing and checkpointing on larger datasets, see `vignette("large-datasets")`.
+
+### Check your setup first
+
+`gc_runtrial()` runs growthcleanr on a small sample of your patients and reports how your columns, sex coding, and parameters were read. Pass it the same arguments you plan to use with `cleangrowth()`. See "Check your setup first" in `vignette("example-scripts")`.
+
+```{r, eval = FALSE}
+gc_runtrial(my_data)
+```
+
+### Full cleaning run for smaller datasets
+
+```{r, eval = FALSE}
+result <- cleangrowth(my_data)   # growthcleanr now takes an optional id column (unique per row); without one, ids are generated and a warning is shown
+```
+
+### Full cleaning run for larger datasets
+
+```{r, eval = FALSE}
+result <- cleangrowth(my_data,
+                      checkpoint_dir = "gc_checkpoints",
+                      parallel = TRUE)
+```
+
+**Standard growthcleanr format**:
+
+- Long (each weight, height, and head circumference on a separate row)
+- Columns with names and coding below:
+    - `subjid` (a unique subject identifier, may be any column type)
+    - `sex` (default accepted codes: 0=male, 1=female, M/F, Male/Female, B/G, Boy/Girl, any capitalization; for other codes (for example 1 = male, 2 = female), see "Set your sex coding (including 1 = male, 2 = female)" in `vignette("example-scripts")`)
+    - `agedays` (age in days; a fractional age is cleaned as its whole day and returned as submitted)
+    - `param` (WEIGHTKG, HEIGHTCM, LENGTHCM, HEADCM; or for imperial units, WEIGHTLBS, HEIGHTIN, LENGTHIN, HEADIN; to use your own labels (such as WT/HT/HC), see "Use your own measurement-type labels (WT / HT / HC)" in `vignette("example-scripts")`)
+    - `measurement` (measurement value in the units designated by the param column (long) or column name (semi-wide or wide))
+    - `id` (optional, and new to version 3, a unique row identifier that facilitates deterministic cleaning on successive runs)
+
+**New recommended sex coding.** We now recommend coding sex as M/F to facilitate use of growthcleanr and the `cdcanthro` package without recoding sex.
+
+---
+
+
+# The `cleangrowth()` output
+
+## Default columns
+
+By default, `cleangrowth()` returns all of your entered columns and the additional columns below. If you did not enter an `id` column, a generated `id` is also returned.
+
+| Column | Description |
+|--------|-------------|
+| `exclude` | Exclusion code (Summary level; see below). A factor. |
+| `bin_exclude` | Binary flag (character): `"Include"` or `"Exclude"` |
+| `unit_error_range` | Whether the value is in a range common for unit errors (on by default; set `unit_error_range = FALSE` to omit), meant to provide a dataset-level signal, should not be used as a definitive indicator of a unit error |
+| `mean_ht` | Returned when the data has adult rows (set `mean_ht = FALSE` to omit): the adult algorithm's mean height (cm), on adult height rows only |
+
+**Extra input columns are carried through by default.** With `carry_through = TRUE` (the default), growthcleanr returns the six input columns (renamed to your names) and the result columns alongside any *other* columns from your input, so the results attach directly to your full dataset. Set `carry_through = FALSE` to return only the six input columns plus the results; in that case, keep your `id` column and merge on it to reattach the results. An input column with the same name as a growthcleanr output column is returned as `userinput_<name>`.
+
+# New features by category
+This list focuses on differences from the prior CRAN release, 2.2.3. There is extensive documentation of current behavior in the package — see `browseVignettes("growthcleanr")` for the full set (e.g. `vignette("adult-algorithm")`, `vignette("exclusion-codes")`, `vignette("output")`, `vignette("cf-rescue")`).
+
+Coding is not detailed here. For ready-to-run scripts for other formats, column names, coding, etc. see `vignette("example-scripts")`; for larger datasets, see `vignette("large-datasets")`.
+
+## Command and output
+- **A Shiny app** (`growthcleanr_app()`) for cleaning data without writing R code. See the [Shiny app how-to guide](https://growthcleanr.org/articles/how-to-shiny.html).
+- growthcleanr now accepts data in **semi-wide** and **wide** formats. See the [R interface how-to guide](https://growthcleanr.org/articles/how-to-r.html), [Changes that may simplify your workflow](#simplify-workflow), "Semi-wide data (one row per visit)" and "Wide data (one row per subject)" in `vignette("example-scripts")`, and "Input format: long, semi-wide, and wide" in `vignette("wrapper")`.
+- Users may input **date of birth and visit date** rather than agedays. See "Use dates instead of age in days" in `vignette("example-scripts")` and "Date parsing" in `vignette("wrapper")`.
+- The **command-line driver**, which cleans a CSV file from a terminal or batch job without writing R code, was updated for the new options and gives the same results as the equivalent R call. See `vignette("command-line")`. If you have shell scripts that call the 2.2.3 driver, see item 6 in [Updating code written for growthcleanr 2.2.3](#updating-code).
+- `cleangrowth()` returns a data.table, not a vector.
+- More user-friendly exclusion codes, reported at three levels — a binary recommendation (`bin_exclude`), a short Summary set (default), and a more granular Detailed set (opt-in). [Details](#exclusion-codes)
+- Addition of an optional `id` variable that ensures deterministic, replicable handling of borderline values across multiple runs of growthcleanr on the same dataset.
+- growthcleanr accepts M/F, male/female, B/G, and boy/girl in the sex column without any specification (in addition to 0=male, 1=female). It is not case-sensitive. M/F and B/G can also be used in the package `cdcanthro` that calculates z-scores, allowing use of growthcleanr and cdcanthro on the same dataset without conversion. Other codings can be set with `sex_coding`.
+- **A trial run** of a small sample of your data, `gc_runtrial(my_data)`, reports how your columns, sex coding, and parameters were read. See [Check your setup first](#check-your-setup-first).
+
+## Efficiency
+- A new feature, checkpointing, reduces memory use; with it, run-time for larger datasets increases almost linearly. Checkpointing is on by default: for datasets with more than 5,000 subjects, growthcleanr cleans in checkpoints saved to a temporary folder and deletes them when the run finishes. Set `checkpoint_dir` to keep the checkpoint files so an interrupted run can resume, or `checkpoint = FALSE` to write no intermediate files to disk. See `vignette("large-datasets")`.
+- Parallel processing is simpler to use: set the `parallel` argument to `TRUE`. Parallel processing and checkpointing can be used together.
+- Multiple internal efficiency improvements invisible to the user.
+
+## Changes to child algorithm
+- Improved handling of infants: The prior pediatric algorithm was optimized for children 2 years of age and older. 2.2.3 contained a preliminary version of an algorithm with new features for infants, including infants whose growth pattern is consistent with prematurity or small-for-gestational age. There is now a single combined child version incorporating modifications for infants. 
+- The infant handling includes "correction" for an assigned gestational age when early measurements are very low. The correction is designed to improve handling for babies who are premature or small for gestational age.
+- Addition of head circumference. Head circumference was only evaluated by the preliminary infants algorithm in 2.2.3, which was not recommended for research use; for practical purposes HC cleaning is new in version 3.
+- Improved handling of carried forwards. Many consecutive identical values that would previously have been excluded as CFs are now "rescued" if it seems reasonably likely that they were independently measured rather than carried forward. Setting thresholds for rescue is extremely challenging because the performance of different thresholds varies widely based on site-specific practices, so these methods may continue to evolve.
+- Improved recentering. Rather than deriving recentering medians from your data (or from NHANES data for smaller datasets), this version of growthcleanr uses built-in smoothed recentering medians from multi-center data which provide protection from areas of low visit density affecting recentering and therefore results. You can supply your own recentering medians with `sd.recenter =`, or turn recentering off with `sd.recenter = "none"`. See `vignette("recentering")` for how the defaults were built and how to customize. In the past, growthcleanr could produce different results for an individual child based on the growth patterns of other children in the dataset. Results are now reproducible regardless of the size and makeup of the dataset.
+
+## Changes to adult algorithm
+- Refined "wtallow" formulas that determine allowed degree of weight deviation.
+- Loosening of height variation limits. (The default height window is looser.)
+- A redesigned adult algorithm with four permissiveness levels, set via `adult_permissiveness`: `"loosest"`, `"looser"` (the default), `"tighter"`, and `"tightest"`. These set all adult thresholds at once; the tightest level is intended for evaluations of relatively healthy populations. `permissiveness_presets()` returns the settings for each level. Of the four, `"looser"` (the default) is the most similar to the prior adult algorithm, though none of them reproduce it exactly. For the intended use of each level, see Section 1D of `vignette("configuration")`. For a ready-to-run script, see "Data that includes adults" in `vignette("example-scripts")`. To change individual adult thresholds without switching level, use `adult_overrides` (see `?cleangrowth` and "User overrides" in `vignette("adult-algorithm")`).
+- When a "weight cap" (now referred to as "scale max") was set, 2.2.3 excluded all of a subject's weights when one was recorded at the scale maximum; weights at the cap that fit the subject's trajectory are now kept.
+- Removal of steps that identified specific types of errors (e.g., hundreds). These contained bugs, were inefficient, and did not improve accuracy.
+
+## Changes to both algorithms
+- New "evil twins" step that excludes consecutive erroneous measures that were missed previously.
+- Redesigned handling of more than one measurement on the same day. The prior adult algorithm often excluded all values when there was more than one measurement per parameter on the same day. This has been fixed. When comparing results with 2.2.3, compare by subject, parameter, and day, not by row.
+- More customization available, especially for adults. See `vignette("configuration")` for more details. 
+- Removal of unit error/swap correction for children and similar "special cases" code in adult algorithm. They were lower-yield and error-prone. Detection of errors from these causes is now folded into the rest of the algorithm.
+- Addition of the `unit_error_range` output column to provide an indicator of whether a value is in a common range for unit errors. This column is calculated independently of exclusions and is not a definitive designation of a unit error. Patients with consistent atypical growth cannot always be distinguished from patients with unit errors. In other words, if a patient's data is entirely in the wrong units, longitudinal cleaning can mistake them for children with consistent atypical growth. If a large proportion of values have `unit_error_range` = TRUE, examine your data to look for unit errors. The unit error range check is a useful indicator but can be wrong. ***Do not assume that these values should be corrected to other units.*** Some values are plausible in either unit, so they are never flagged. Other true values may be flagged, such as in data with measurements from premature infants. Importantly, many types of errors can result in a value that appears to be a unit error; "correcting" these for unit errors will result in erroneous values.
+- Adjusted the limits beyond which all values were excluded. These were previously called BIVs and are now called hard-limits.
+- The `longwide()` command was present in 2.2.3 but not widely known. It facilitates conversion of long data to semi-wide format (height and weight on one row) for calculation of BMI. For children, this can be used with the ext_bmiz() command to calculate extended BMI z-scores in growthcleanr. growthcleanr now also accepts and returns semi-wide and wide layouts directly, via `input_format` and `output_format`.
+- Other refinements that improve performance but would mostly be invisible to users
+
+---
+
+## Optional output columns
+
+Additional output columns can be requested with arguments such as `exclude_detail`, `cf_detail`, and `full_detail`. See `vignette("configuration")` for the full list and `vignette("output")` for what each column contains.
+
+## Inspecting or troubleshooting a result
+
+If you want to understand *why* a particular value was excluded, learn more about your dataset, or customize your use of growthcleanr output, these options add diagnostic columns (all off by default):
+
+- `exclude_detail = TRUE` -- the finer Detailed exclusion code, which names the reason more specifically than the Summary code.
+- `cf_detail = TRUE` -- for carried-forward decisions, the deviation values behind a rescue-or-exclude call.
+- `corr_detail = TRUE` -- gestational-age correction status.
+- `recenter_detail = TRUE` -- the recentered z-scores the child algorithm used (specialized output for a related tool in development).
+- `debug = TRUE` -- the full set of intermediate z-scores, mostly used for debugging and algorithm refinement.
+- `display_gc_id = TRUE` -- the internal row id growthcleanr used, useful when tracing same-day tiebreaks.
+- `full_detail = TRUE` -- turns on all of the above at once, plus `tri_exclude` and `internal_detail`.
+
+`cf_detail`, `corr_detail`, `recenter_detail`, and the `debug` z-scores apply to child rows only; for adult rows, use `exclude_detail = TRUE`.
+
+For a ready-to-run script, see "See more detail about why values were excluded" in `vignette("example-scripts")`.
+
+
+---
+
+# Exclusion codes {#exclusion-codes}
+
+## Why the codes changed
+
+The prior codes indicated which step a value was excluded in but were overly detailed for the vast majority of users and used unnecessarily jargon-y descriptions. We aimed for exclusion codes with clearer names in fewer categories that are more relevant to researchers.
+
+To support different needs, the updated version reports exclusions at three levels:
+
+- **Binary** - growthcleanr's binary recommendation: `Include` or `Exclude`
+- **Summary** (the default `exclude` column) — a small set of clear, consolidated reasons that are more aligned with what researchers would want to report. 
+- **Detailed** (opt in with `exclude_detail = TRUE`) — finer gradations than the Summary codes, but still organized around user-relevant reasons rather than internal step mechanics. Most Detailed codes keep a `-C-` (child) or `-A-` (adult) marker showing which algorithm assigned them (e.g. `Exclude-C-Pair`). Every Detailed code matches to one Summary code.
+
+
+## The Summary exclusion codes
+
+These are the values that can appear in the default `exclude` column. Exclusion codes no longer designate whether they are for Adults or not (this is available in the detailed codes). More detailed mapping of how prior codes match to these codes is available below.
+
+| Summary code | Meaning |
+|---|---|
+| `Include` | Value passed all checks and was not flagged. |
+| `Exclude-Not-GC-Param` | The `param` is not one growthcleanr cleans; the row is set aside with its measurement preserved. |
+| `Exclude-Missing-Info` | A required field is missing or unevaluable (e.g. missing/negative/zero measurement, missing age, or a missing or unrecognized value in the sex column for a pediatric measurement). |
+| `Exclude-HC-Out-of-Range` | Head circumference after 5 years of age, beyond the available reference. |
+| `Exclude-Identical` | A same-day duplicate identical to the value that was kept. |
+| `Exclude-Extraneous` | A same-day value, not identical to and not selected as the kept value. |
+| `Exclude-Hard-Limit` | A value beyond a raw or standardized limit that prevents it from being evaluated further, regardless of a subject's other measurements; for children, also a weight or height whose same-day BMI is impossible. Previously called BIV. |
+| `Exclude-CF` | Deemed likely carried forward from the prior value. |
+| `Exclude-Scale-Max` | Adult only, used only if a scale maximum (e.g., 400 lbs) is entered with `adult_scale_max_lbs`. Weights within ±0.1 kg of the cap are excluded if they are more than 50 kg different from their expected value, or if all of the subject's weights (at least two) are the same value at the cap. |
+| `Exclude-Extreme` | An extreme outlier — an adjacent extreme value pair/group, or an extreme trajectory deviation. |
+| `Exclude-Pattern` | A moderate trajectory or velocity disagreement with the subject's other values. |
+| `Exclude-Pair` | Child only. Used when, by one of the last steps of the algorithm, a subject has only two unexcluded measurements for a parameter and one of them is excluded. (For adults, pairs are included in `Exclude-Pattern`.) |
+| `Exclude-Single` | Used when, by one of the last steps of the algorithm, a subject has only one unexcluded measurement (children) or only one distinct unexcluded value (adults) for a parameter and it is excluded based on limits that consider the subject's other parameter when available (child: the other parameter's z-score; adult: a same-day BMI). |
+| `Exclude-Traj-Uneval` | A subject/parameter combination in which so many values meet error criteria that the subject's trajectory is unevaluable. |
+
+## "Hard limits" instead of "biologically implausible"
+
+In prior versions, values far from population norms were labeled *biologically implausible* (BIV). The updated version calls these **hard limits**. The name change is driven primarily by the new adult permissiveness levels. When using any but the loosest set of limits, the hard limits will intentionally exclude biologically plausible values.
+
+The `Exclude-Single` category uses different limits and methods than the hard-limit step: its limits consider the subject's other parameter when available (child: the other parameter's z-score; adult: a same-day BMI).
+
+## Mapping from prior exclusion codes
+
+If your code refers to specific exclusion-code names, use the mapping below. The **Summary** column is what now appears in `exclude` by default.
+
+**Child (pediatric) measurements:**
+
+This lists the codes from the default algorithm (the preliminary infants algorithm, an opt-in that was not recommended for research, has been removed).
+
+| Prior code | Summary (`exclude`) | Detailed (`exclude_detailed`) |
+|---|---|---|
+| `Include` | `Include` | `Include` |
+| `Missing` | `Exclude-Missing-Info` | `Exclude-Missing-Info` |
+| `Exclude-Carried-Forward` | `Exclude-CF` | `Exclude-C-CF` |
+| `Exclude-SD-Cutoff` | `Exclude-Hard-Limit` | `Exclude-C-Hard-Limit` |
+| `Exclude-EWMA-Extreme` | `Exclude-Extreme` | `Exclude-C-Traj-Extreme` |
+| `Exclude-EWMA-Extreme-Pair` | `Exclude-Pair` | `Exclude-C-Pair` (subjects with two measurements; also possibly `Exclude-Extreme` / `Exclude-Hard-Limit` when a value is extreme enough) |
+| `Exclude-Extraneous-Same-Day` | `Exclude-Extraneous` / `Exclude-Identical` | same |
+| `Exclude-EWMA-8` through `Exclude-EWMA-14` | `Exclude-Pattern` | `Exclude-C-Traj` |
+| `Exclude-Min-Height-Change`, `Exclude-Max-Height-Change` | `Exclude-Pattern` | `Exclude-C-Abs-Diff` |
+| `Exclude-Pair-Delta-17/18/19` | `Exclude-Pair` | `Exclude-C-Pair` |
+| `Exclude-Single-Outlier` | `Exclude-Single` | `Exclude-C-Single` |
+| `Exclude-Too-Many-Errors` | `Exclude-Traj-Uneval` | `Exclude-C-Unevaluable-Trajectory` |
+| `Exclude-Too-Many-Errors-Other-Parameter` | *(removed -- no counterpart)* | *(removed)* |
+
+`Exclude-SD-Cutoff` excluded values whose recentered or unrecentered z-score was more extreme than ±25 (the `sd.extreme` and `z.extreme` defaults). It maps to `Exclude-Hard-Limit`; the updated hard-limit step uses different limits (see Child Step 7 in `vignette("child-algorithm")` and Section 1B of `vignette("configuration")`). `Exclude-Too-Many-Errors-Other-Parameter` has no successor: the updated algorithm no longer propagates a high error load from one parameter to the other.
+
+**Adult (`Exclude-Adult-*`) measurements:**
+
+| Prior code | Summary (`exclude`) | Detailed (`exclude_detailed`) |
+|---|---|---|
+| `Exclude-Adult-BIV` | `Exclude-Hard-Limit` | `Exclude-A-Hard-Limit` |
+| `Exclude-Adult-Identical-Same-Day` | `Exclude-Identical` | `Exclude-Identical` |
+| `Exclude-Adult-Extraneous-Same-Day` | `Exclude-Extraneous` | `Exclude-Extraneous` |
+| `Exclude-Adult-Weight-Cap`, `Exclude-Adult-Weight-Cap-Identical` | `Exclude-Scale-Max` | `Exclude-A-Scale-Max` |
+| `Exclude-Adult-EWMA-Extreme` (+ `-RV`) | `Exclude-Extreme` | `Exclude-A-Traj-Extreme` |
+| `Exclude-Adult-EWMA-Moderate` | `Exclude-Pattern` | `Exclude-A-Traj-Moderate` |
+| `Exclude-Adult-Distinct-Pairs`, `Exclude-Adult-Distinct-Ordered-Pairs` | `Exclude-Pattern` | `Exclude-A-Ord-Pair` / `Exclude-A-2D-Ordered` / `Exclude-A-2D-Non-Ordered` (by parameter) |
+| `Exclude-Adult-Distinct-3-Or-More` | `Exclude-Pattern` | `Exclude-A-Window` |
+| `Exclude-Adult-Unit-Errors` (+ `-RV`) | No longer identified as unit errors; such values are now excluded as `Exclude-Hard-Limit`, `Exclude-Extreme`, or `Exclude-Pattern`, depending on how far out of range they are and the permissiveness level | `Exclude-A-Hard-Limit` / `Exclude-A-Traj-Extreme` / `Exclude-A-Traj-Moderate` / `Exclude-A-Window` |
+| `Exclude-Adult-Distinct-Single` | `Exclude-Single` | `Exclude-A-Single` |
+| `Exclude-Adult-Too-Many-Errors` | `Exclude-Traj-Uneval` | `Exclude-A-Unevaluable-Trajectory` |
+
+`Exclude-Scale-Max` (adult scale maximum) was previously `Exclude-Adult-Weight-Cap` and `Exclude-Adult-Weight-Cap-Identical`.
+
+**Adult codes with no direct successor.** The updated algorithm removed the standalone digit-error, transposition, and swap detection steps, so these prior codes no longer occur: `Exclude-Adult-Hundreds` (+ `-RV`), `Exclude-Adult-Transpositions` (+ `-RV`), `Exclude-Adult-Swapped-Measurements`, and `Exclude-Adult-Possibly-Impacted-By-Weight-Cap`. A genuinely extreme value that one of these once flagged should still be excluded by the Evil Twins (`Exclude-Extreme`), hard-limit (`Exclude-Hard-Limit`), or trajectory (`Exclude-Pattern`) steps.
+
+**Child codes with no direct successor.** Unit-error and swap detection were removed from the algorithm, so these prior codes no longer occur: `Unit-Error-High`, `Unit-Error-Low`, `Unit-Error-Possible`, `Swapped-Measurements`. (An informational `unit_error_range` output column flags values consistent with a unit error, but the algorithm no longer corrects or excludes on that basis.)
+
+## New codes
+
+These have no prior-version equivalent: `Exclude-Not-GC-Param`, `Exclude-HC-Out-of-Range` (head circumference after 5 years), `Exclude-Identical` (same-day identical values are now split out from other extraneous values for children; adults already had `Exclude-Adult-Identical-Same-Day`), and the extreme-pair step that feeds `Exclude-Extreme`.
+
+---
+
+# Removed and renamed arguments {#removed-and-renamed-arguments}
+
+These `cleangrowth()` arguments no longer exist. Passing one of these stops with a message naming what to use instead.
+
+<!-- Maintainers: the Notes column is copied from `.gc_removed_args` in R/child_clean.R (the source of truth for the stop messages). Update that list first, then copy here. -->
+
+| Removed argument | Notes |
+|-------------------|-------|
+| `recover.unit.error` | Unit-error recovery was removed from the algorithm; no option is needed. |
+| `sd.extreme` | The extreme z-score cutoff was replaced by the hard-limit step (Child Step 7); its limits are set with the `piv.z.*` arguments. |
+| `z.extreme` | The extreme z-score cutoff was replaced by the hard-limit step (Child Step 7); its limits are set with the `piv.z.*` arguments. |
+| `lt3.exclude.mode` | Handling of subjects with few measurements is built in; no option is needed. |
+| `height.tolerance.cm` | The height-decrease tolerance is built in; no option is needed. |
+| `ewma.exp` | The EWMA exponent is fixed internally; no option is needed. |
+| `sdmedian.filename` | File output was removed; use `recenter_detail = TRUE` to return the recentering values as columns. |
+| `sdrecentered.filename` | File output was removed; use `recenter_detail = TRUE` to return the recentering values as columns. |
+| `include.carryforward` | Use `cf_rescue` instead (`"none"` is closest to `include.carryforward = FALSE`, the 2.2.3 default; `"all"` is closest to `TRUE`; the default is now `"standard"`; see below). |
+| `num.batches` | Use `cores` instead (with `parallel = TRUE`). |
+| `weight_cap` | Use `adult_scale_max_lbs` instead (in pounds, not kg). |
+| `adult_columns_filename` | File output was removed; the adult mean height is returned in the `mean_ht` column. |
+| `prelim_infants` | Infant handling is now built in; no option is needed. |
+
+Other removals (most also listed in [Updating code written for growthcleanr 2.2.3](#updating-code)):
+
+| Removed | Notes |
+|---------|-------|
+| `sd.recenter = "nhanes"`, `sd.recenter = "derive"` | The built-in reference is now the default, so omit `sd.recenter` to use it; supply a table of your own medians, or set `sd.recenter = "none"` for no recentering. See `vignette("recentering")`. |
+| `splitinput()` | Replaced by checkpointing; see `vignette("large-datasets")`. |
+| `adjustcarryforward()`, `testacf()`, `acf_answers()` | Replaced by the `cf_rescue` argument; see `vignette("cf-rescue")`. Calling `adjustcarryforward()` stops with a message saying so. |
+| `sd_median()` | Replaced by a new recentering method; see `vignette("recentering")`. |
+| `log.path` (deprecated) | Still accepted, with a warning; use `log_file`, which writes a log whenever checkpointing engages (when `checkpoint_dir` is set, or for more than `checkpoint_size` subjects under the default). |
+
+**Equivalents.** `include.carryforward = TRUE` (skip all carry-forward detection) is approximately equivalent to the new `cf_rescue = "all"` (rescue all potential CFs), and the 2.2.3 default (`include.carryforward = FALSE`) is closest to `cf_rescue = "none"`. `cf_rescue` has three modes: `"standard"` (default; each detected carry-forward string is rescued or excluded based on how far it deviates from the originating and next measured values -- see `vignette("cf-rescue")`), `"none"` (all carry-forwards excluded), and `"all"`. The old `weight_cap` (kg) is replaced by `adult_scale_max_lbs` (pounds).
+
+---
+
+# New id column
+growthcleanr sometimes has to choose between two measurements that are equally plausible, such as two different values recorded on the same day. Supplying an `id` column (numeric or character) that uniquely identifies each row makes that choice, and therefore the full set of results, identical every time you run growthcleanr on the same data. 
+
+
+---
+
+# Efficiency improvements
+**Checkpointing.** For larger datasets, `cleangrowth(checkpoint_dir = ...)` splits subjects into groups to reduce memory use and to save resumable checkpoints -- see [Checkpoints](#full-cleaning-run-for-larger-datasets) above.
+
+Other efficiency improvements:
+
+**Reference preloading.** This is an option to load reference tables once and reuse them. This saves roughly a second per call, and can add up for extremely large datasets.
+
+```{r, eval = FALSE}
+refs <- gc_preload_refs()
+for (rep in 1:n_reps) {
+  result <- cleangrowth(data = my_data, ref_tables = refs)
+  # ...
+}
+```
+
+**Parallel processing.** Parallel processing previously did not work in all settings. This has been addressed. 
+
+```{r, eval = FALSE}
+result <- cleangrowth(data = my_data, parallel = TRUE, cores = 4)
+```
+
+Note: `parallel = TRUE` requires growthcleanr to be *installed* (the parallel workers load the installed package). (Installation is the method typically used.) `parallel = TRUE` will not work if you are loading the package with `devtools::load_all()`.
+
+Other options and improvements:
+
+- `gc_partial_run()` re-cleans only the subjects whose data changed since an earlier run and reuses the earlier results for everyone else. See `?gc_partial_run`.
+- `batch_size` controls how many subjects are processed per in-memory batch (default 5,000); lower it if you are memory-constrained.
+- Progress and a summary now print by default (2.2.3 was silent); set `quietly = TRUE` to turn them off.
+- Use of matrices when possible.
+- "Windowing" for EWMA - by default, exponentially weighted moving averages only include the 15 measurements on either side of the value (set with `ewma_window`). This reduces computation time significantly without affecting performance except in extreme edge cases.
+- Many others.
+
+# Debugging
+
+- Many bug fixes were made.
+
+---
+
+# Warnings and error messages
+
+- Extensive efforts were made to improve warnings and error messages to facilitate troubleshooting. `quietly = TRUE` turns off progress lines and the cleaning summary, but warnings still appear; to suppress warnings too, use R's `suppressWarnings()`.
+
+# Documentation
+- New how-to guides for the [Shiny app](https://growthcleanr.org/articles/how-to-shiny.html) and [R user interface](https://growthcleanr.org/articles/how-to-r.html).
+- New [fact sheet](https://growthcleanr.org/growthcleanr-fact-sheet.pdf) and [researcher overview](https://growthcleanr.org/growthcleanr-researcher-overview.pdf).
+- Additional user support documentation, such as for the [command-line driver](https://growthcleanr.org/articles/command-line.html).
+- Expanded technical documentation; see `browseVignettes("growthcleanr")`.
+- A new vignette describes how AI assistance was used in growthcleanr development (`vignette("ai-role")`).
+- More guidance is in progress; see "Documentation in progress" in `vignette("new-start-here")`.
+
+# Other changes
+
+- **Missing `agedays` in a row** no longer causes a hard stop; affected rows are assigned `Exclude-Missing-Info`.
+- **Head circumference (`HEADCM`)** is supported as a parameter. HC measurements after 5 years of age are assigned `Exclude-HC-Out-of-Range`.
+- **Recumbent length.** A new `length.adjust` option (default `FALSE`) reconciles entered length and height with what the reference at that age expects, in both directions: recumbent-labeled measurements at 2 years or older are z-scored 0.7 cm lower, and height-labeled measurements under 2 years 0.7 cm higher (the measurement value itself is not changed). By default, recumbent-labeled values are relabeled to height without any measurement adjustment; the exception is gestational-age-corrected children with chronological age 2 years or older but corrected age under 2, who are presumed to be measured recumbent. Full rules: `vignette("wrapper")`, section "Length vs. height handling".
+- **`cleangrowth()` sex warning.** A prominent warning is given if the data include children and more than one subject and every value in `sex` is 1 under the default coding.
+- **`longwide()` sex checks.** As in `cleangrowth()`, `longwide()` stops if `sex` has only 1s and 2s, and gives a prominent warning if every value is 1 across more than one subject. Passing the `sex_coding` you gave `cleangrowth()` removes both.
+- **`ext_bmiz()` warnings.** `ext_bmiz()` warns about missing or unrecognized sex. Logical `sex` is no longer read as a sex code (`FALSE` was read as female). It also warns about rows at about 729-730 days, which get `NA` because they fall just under 24 months, and if `data` already has one of its output columns, the returned data has the new values in that column (with a warning).
+- **`recode_sex()` fix.** With `targetcol` equal to `sourcecol`, it no longer recodes twice (0/1 to 1/2 in place used to make every row 2).
+- **Docker support was dropped.** The `Dockerfile`, `.dockerignore`, and image-publishing GitHub Actions workflows were removed.
+
+---
+
+# Validation and review {#validation-and-review}
+
+Clinicians and experts have validated, informed, and reviewed growthcleanr at multiple stages.
+
+1. The original child algorithm was validated by two pediatricians as described in the JAMIA 2017 paper ([doi:10.1093/jamia/ocx037](https://doi.org/10.1093/jamia/ocx037)).
+
+2. The adult algorithm was validated by three physicians. Results will be published in an upcoming manuscript. Note that the algorithm was specifically validated in adults 18 to 65 years of age. Overall, the sensitivity and specificity were good, but two problems were identified. There was a bug in handling of patients where the penultimate and last values both met criteria for potential exclusion. Also, the clinicians had a larger tolerance for height variability than the algorithm did. These issues were addressed in version 3.
+
+3. For the algorithm updates in version 3, we obtained clinician input into thresholds and asked clinicians to review selected difficult cases. We initially planned to do formal validation. However, version 3 changes largely address edge or unusual cases, and during the planning phases for validation, agreement among clinicians for these cases was often poor. We have addressed this in several ways. Selected cases were reviewed by pediatricians and internal medicine physicians to confirm that growthcleanr agreed with at least some clinicians. We also designed tests based on literature, for example to evaluate cleaning for bariatric surgery patients, and added extensive automated testing to ensure (to the best of our ability) that updates to address one issue didn't cause regression in performance for other issues. Finally, we added more customization options to the adult algorithm with different tolerance for different atypical patterns, specifically four levels of permissiveness. Further details will be provided in an upcoming manuscript.
+
+# What's next?
+We are working on more customization options for the child algorithm. We will continue to expand functionality and usability as resources allow.
+
+# Contact
+If you have bug reports, ideas about child customization, or other new features of growthcleanr, please contact us through GitHub or email cdaymont@pennstatehealth.psu.edu.
+
+**Hint**: Requests for features may help us obtain funding for implementing them.
+
+---
+
+# More details of installing a prior version {#installing-a-prior-version}
+
+To continue using a previous release:
+
+```{r, eval = FALSE}
+# From CRAN:
+remotes::install_version("growthcleanr", version = "2.2.3")
+
+# Or from GitHub at a tagged release:
+remotes::install_github("growth-data-tools/growthcleanr@v2.2.3")
+```
+
+Only one version can be installed per R library at a time. Use [renv](https://rstudio.github.io/renv/) for project-specific libraries if you need more than one version available.
+
+```{r, eval = FALSE}
+# Check your installed version:
+packageVersion("growthcleanr")
+```
+
+If `packageVersion()` does not show the version you expect after switching versions, follow the detach/uninstall/restart/reinstall steps in the install note near the top.

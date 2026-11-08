@@ -1,0 +1,1611 @@
+---
+title: "Technical reference: child algorithm"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Technical reference: child algorithm}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\usepackage[utf8]{inputenc}
+---
+
+
+**Purpose.** This is a technical reference with an extremely detailed description of the child algorithm (`cleanchild()` in `child_clean.R` and supporting functions). It is primarily intended for developers, but may be of interest to people who want to know more about how growthcleanr works.
+
+The child algorithm is a modified version of the algorithm described in [Daymont et al. (2017)](https://pmc.ncbi.nlm.nih.gov/articles/PMC7651915/); see `citation("growthcleanr")` for the full citation.
+
+
+This document describes what the current R code does in the child algorithm. It is intended as a debugging aid and a long-term technical reference. References to code use function names and step numbers rather than line numbers, because line numbers become stale with each code edit.
+
+---
+
+## How to Read This Document
+
+This reference documents the child algorithm cleaning steps (Child Steps 5, 6, 7, 9, 11, 13, 15/16, 17, 19, 21, 22) plus child-specific concepts, the `cleanchild()` working dataframe, and child-only output material.
+
+**Wrapper-level material lives in `vignette("wrapper")`:** input format, unit conversion, the full z-score calculation pipeline (CSD method, WHO/CDC blending, recentering), batching, dispatch, output reassembly, and the Child Step 2b GA correction (which runs in `cleangrowth()` preprocessing).
+
+Each algorithm step section here has:
+
+- A summary table (scope, prior/next step, exclusion codes, code location)
+- Overview
+- Key terms and variable names
+- Logic and implementation
+- Rationale for selected decisions
+- Configurable arguments in scope
+- Variables created and dropped
+- Checklist findings
+
+Sections that do not apply to a given step are marked "N/A" rather than omitted.
+
+This document covers, in order:
+
+- Child-specific Key Concepts
+- Z-Score Summary (brief; full mechanics in wrapper reference)
+- `cleanchild()` main algorithm structure
+- Working Dataframe and Output (child-specific mechanics)
+- Variable Glossary (child-specific variables)
+- Output Format (child exclusion codes + CF rescue codes)
+- Configurable Arguments (child-specific)
+- Complete List of Steps
+- Step-by-step walkthroughs (Early Child Step 13 through Child Step 22)
+
+---
+
+## Key Concepts
+
+This section covers concepts specific to the child algorithm. For wrapper-level concepts (data retention, CSD z-scores, prematurity correction, recentering, three growth parameters, `internal_id` tiebreaking), see `vignette("wrapper")` → Key Concepts (wrapper-level).
+
+***Three growth parameters (child scope):*** The child algorithm cleans WEIGHTKG, HEIGHTCM (including LENGTHCM relabeled to HEIGHTCM; see `length.adjust` parameter), and HEADCM. HEADCM is cleaned through age 5 years — HC measurements with `agedays >= 1827` are marked `Exclude-Not-Cleaned` (reported as `Exclude-HC-Out-of-Range`) because the WHO HC z-score reference ends at 5 years, so recentered z-scores cannot be formed beyond that. The recentering file provides HC `rcmedian.sd` through 5 years. For HC ages 24 months–5 years, the velocity check (Child Step 17) uses only `mindiff = -1.5` with no upper bound since the WHO HC velocity reference ends at 24 months; EWMA steps provide the primary outlier detection for this range.
+
+***Designated Other Parameter (DOP):*** Many steps compare a measurement against a different growth parameter for the same subject. The designated other parameter (DOP) for weight is height; the DOP for height is weight; the DOP for HC is height. DOP comparisons are used in temporary SDE resolution (Child Step 5), the moderate EWMA step (Child Step 15 `last-ext` rules), final SDE resolution (Child Step 13), and pairs/singles evaluation (Child Step 19). In Child Step 13, DOP medians are computed for one-day SDE resolution (cross-parameter comparison) and DOP is used as a secondary sort key for selecting which SDE to keep.
+
+***Ordered steps:*** Like the adult algorithm, the child algorithm processes steps in a specific order, removing more extreme problems first and getting more refined later. Same-day extraneous values (described below) are handled in repeated steps because of bidirectional impact of same-day selection and other exclusions. Some errors cause over- or under-detection of other errors, so they must be excluded first. The order of steps is central to the algorithm.
+
+***Iterations within steps:*** Several steps (Evil Twins, EWMA1, EWMA2) are iterative. If more than one value is a candidate for exclusion, they select the most extreme candidate and then re-evaluate for further exclusions. This continues until no candidates remain or too few values are left to evaluate. This is a central part of the algorithm and reduces the likelihood of erroneous values leading to exclusion of true values.
+
+***Temporary vs. permanent exclusions:*** Same-day extraneous (SDE) values are multiple values for the same parameter on the same day. growthcleanr selects the most plausible SDE for inclusion in the final dataset. SDEs are first flagged temporarily (Child Step 5) and later resolved permanently (Child Step 13). Carried-forward values may be "rescued" and returned to Include status based on z-score similarity criteria. These temporary mechanisms allow the algorithm to refine decisions as the dataset gets cleaner.
+
+***No separate parameter pipelines:*** Unlike the adult algorithm, which processes height and weight in completely separate working dataframes, the child algorithm keeps all parameters in a single data.table (data.df) with parameter tracked in a `param` column. Child Steps that operate on a single parameter use `by = .(subjid, param)` groupings or explicit filtering. This design supports the cross-parameter comparisons (DOP) that are central to the child algorithm.
+
+***CF rescue:*** The child algorithm has a carried-forward (CF) rescue system (Child Step 6) that attempts to distinguish genuinely repeated measurements from data-entry artifacts. In the default `cf_rescue = "standard"` mode, each string of identical values is judged on how far the carried value has drifted from the real value it copies and how the trajectory continues past it; `cf_rescue = "none"` and `cf_rescue = "all"` provide all-or-nothing behavior. Rescued CFs are returned to `Include`. See `vignette("cf-rescue")` for the full rule.
+
+***EWMA (Exponentially Weighted Moving Average):*** The central mechanism for detecting implausible values. For each measurement, the EWMA computes a weighted average of the subject's other measurements for the same parameter, giving exponentially more weight to temporally closer values. The deviation from EWMA (dewma) indicates how far a value is from what we would predict. Default exponent is -1.5 (child) vs. -5 (adult). With -1.5, the weighting is less dominated by the nearest neighbor, spreading influence across a wider time range — appropriate for pediatric data where growth trajectories change more rapidly.
+
+***The `.child_valid()` function:*** A critical gatekeeper that determines which rows participate in each step. See **Support Functions → `.child_valid()`** below for flag semantics and behavior.
+
+***Age-dependent internal_id tiebreaking:*** When resolving same-day duplicates, the child algorithm uses an age-dependent rule based on `internal_id` (the sequential integer assigned in id-sorted order at session start): at birth (agedays == 0), keep the lowest `internal_id` (earliest measurement, before postnatal fluid shifts and interventions); at all other ages, keep the highest `internal_id` (later measurement, which may represent a more careful re-measurement). This differs from the adult algorithm, which always keeps the highest `internal_id`. The user's original `id` column is never used as a tiebreaker; it is preserved untouched into output.
+
+---
+
+## Support Functions
+
+Child-algorithm-internal helpers defined in `R/child_clean.R`. Each entry lists purpose, callers, input/return contract, key invariants the function assumes at entry, and the enclosing function name as a code anchor. For wrapper-level helpers that both algorithms share, see `vignette("wrapper")` → Shared Helpers.
+
+### `.child_valid(df, include.temporary.extraneous = FALSE, include.extraneous = FALSE, include.carryforward = FALSE)`
+
+**Purpose.** The central row-eligibility filter for every step. Returns a logical vector marking which rows are currently "valid" for the step that called it.
+
+**Callers.** Called 18 times across `cleanchild()`, at the entry of every step that needs to filter rows.
+
+**Inputs and return contract.**
+
+- `df` — either a data.frame / data.table containing an `exclude` column, or a plain character / factor vector of exclusion codes. Coerced to character internally, so factor and character inputs behave identically.
+- `include.*` flags — three additive booleans that opt specific soft-excluded categories back in: `include.temporary.extraneous` (Child Step 5 temp SDEs), `include.extraneous` (Child Step 13 permanent SDEs), `include.carryforward` (Child Step 6 CFs; internal helper argument, unrelated to the removed `cleangrowth()` parameter).
+- Returns a logical vector the same length as the input. TRUE = keep for processing.
+
+**Default behavior.** Base set is `!grepl("^Exclude", exclude)`. Because every exclusion code in the child algorithm (`Exclude-Missing`, `Exclude-Not-Cleaned`, `Exclude-C-*`) starts with `"Exclude-"`, the default call filters out all excluded rows and admits only `"Include"`.
+
+**Key invariants.** The `exclude` column is populated for every row by the time any step calls `.child_valid()` — `Exclude-Missing` and `Exclude-Not-Cleaned` are set pre-dispatch by `cleangrowth()`, and step-level exclusion codes are written in place. A row cannot have `NA` in `exclude`.
+
+**Code location.** `R/child_clean.R`, function `.child_valid()`. No reverse dependencies on `identify_temp_sde()` or the other support functions — `.child_valid()` uses only the `exclude` column.
+
+### `.child_exc(param_val, suffix)`
+
+**Purpose.** Generates a child exclusion code from a reason suffix. Returns `paste0("Exclude-C-", suffix)`.
+
+**Callers.** Essentially every place in `cleanchild()` that writes an `Exclude-C-*` code.
+
+**Inputs and return contract.**
+
+- `param_val` — accepted but ignored. Retained only to avoid churning the call sites that pass it. Can safely be any value, including an unused column reference inside a data.table `j` expression.
+- `suffix` — reason code (e.g. `"PIV"`, `"CF"`, `"Traj"`, `"Evil-Twins"`, `"Temp-Same-Day"`, `"Unevaluable-Trajectory"`). Must correspond to a level in `exclude.levels` or the factor assignment silently produces NA.
+- Returns a character scalar or vector (vectorised via `paste0`).
+
+**Key invariants.** The full canonical list of allowed `suffix` values is in `vignette("exclusion-codes")`. Adding a new suffix requires also adding the corresponding code to `exclude.levels` in `cleangrowth()`.
+
+**Code location.** `R/child_clean.R`, function `.child_exc()`.
+
+### `get_dop(param_name)`
+
+**Purpose.** Scalar lookup of the designated other parameter (DOP) for a given growth parameter.
+
+**Callers.** Two sites inside `cleanchild()` — in the Child Step 15/16 block (the `last-ext` DOP lookup) and in the Child Step 19 pairs/singles block. Both callers pass `df$param[1]` from a single-param working subset.
+
+**Inputs and return contract.**
+
+- `param_name` — scalar character: `"WEIGHTKG"`, `"HEIGHTCM"`, or `"HEADCM"`.
+- Returns a scalar character: the DOP. `WEIGHTKG -> HEIGHTCM`, `HEIGHTCM -> WEIGHTKG`, `HEADCM -> HEIGHTCM` (no reverse mapping; HC's DOP is height, not the other way around).
+
+**Key invariants.** Scalar-only — the internal `if / else if / else` chain requires a scalar logical test. Vector input produces an R warning / error. No validation: anything other than `"WEIGHTKG"` or `"HEIGHTCM"` falls through to the `HEADCM` branch.
+
+**Code location.** `R/child_clean.R`, function `get_dop()`.
+
+### `identify_temp_sde(df, exclude_from_dop_ids = NULL)`
+
+**Purpose.** Selects the "keeper" on each `(subjid, param, agedays)` group that has more than one valid measurement, marking the rest for a temporary same-day-extraneous flag. The keeper is the row closest to the subject-parameter `tbc.sd` median (primary) and the cross-parameter DOP `tbc.sd` median (secondary), with an age-dependent `internal_id` tiebreaker.
+
+**Callers.** Seven sites inside `cleanchild()`. Only the Step 13 caller passes a non-NULL `exclude_from_dop_ids`:
+
+| Step | `exclude_from_dop_ids` | Purpose |
+|---|---|---|
+| Step 5 (initial) | NULL | First temp-SDE pass |
+| Step 6 (recalc) | NULL | After CF identification |
+| Step 7d (recalc) | NULL | After PIV |
+| Step 9d (recalc) | NULL | After Evil Twins |
+| Step 11 mid-loop (subset recalc) | NULL | After each EWMA1 iteration |
+| Step 11c end-of-step | NULL | Full-dataset refresh |
+| Step 13 | `temp_sde_ids_step13` | Final SDE, with DOP anchor restricted |
+
+**Inputs and return contract.**
+
+- `df` — data.table column-subset containing `id`, `internal_id`, `subjid`, `param`, `agedays`, `tbc.sd`, `exclude`, and `orig_row`. Not mutated.
+- `exclude_from_dop_ids` — optional vector of `id` values to remove from the DOP median calculation only (they still contribute to the SP median).
+- Returns a logical vector aligned to the caller's row order. TRUE marks rows the caller should flag `"Exclude-C-Temp-Same-Day"`; FALSE means leave `exclude` unchanged.
+
+**Key invariant.** Identical same-day values are removed earlier (Early Child Step 13 SDE-Identicals), so by the time `identify_temp_sde()` runs, all same-day values in any given (subjid, param, agedays) group are dissimilar.
+
+**Robust SP median.** A single clearly-extreme value that has not yet been excluded by a later trajectory step can drag the `(subjid, param)` `tbc.sd` median toward it and make the wrong same-day value win. Before computing the SP median, the function compares each **Include** value to the group's provisional median; if **exactly one** Include value is `> 3` z from it, that value is dropped from the median computation (both the primary `median.spz` and, in the Step 13 path, the DOP-restricted median). The dropped value still receives a median and is still SDE-evaluated — it is only barred from *anchoring* the median. `far` is evaluated for Include rows only, and the "exactly one" guard means two mutually-distant values (which cannot be disambiguated) are both kept.
+
+**Code location.** `R/child_clean.R`, function `identify_temp_sde()`.
+
+### `calc_otl_evil_twins(df)`
+
+**Purpose.** Marks each row with `otl = TRUE` if it is the inner member (B or C) of an *anchored over-the-limit pair*. "OTL" stands for "over the limit." See the **Evil Twins (Child Step 9) → OTL calculation** section below for the full anchored-pair walkthrough; this entry is the support-function summary.
+
+**Callers.** One site: Child Step 9 (Evil Twins) inside `cleanchild()`.
+
+**Inputs and return contract.**
+
+- `df` — data.table with `subjid`, `param`, `tbc.sd`, `ctbc.sd` at minimum, sorted by `(subjid, param, agedays, internal_id)`.
+- Returns `df` with an added `otl` boolean column. On `nrow(df) < 4L` inputs (too few rows to form an A,B,C,D group) it sets `otl = FALSE` for all rows and returns early.
+
+**Logic.** Within four consecutive eligible rows A, B, C, D (in sort order), the inner pair (B, C) is *over the limit* when its jump exceeds 5 on **both** `tbc.sd` and `ctbc.sd`; it is *anchored* when A holds B to within 3 on **either** scale and D holds C to within 3 on **either** scale. When both hold, B and C are flagged OTL; the outer anchors A and D are not. A missing flank (no A before B, or no D after C) disqualifies the pair, so single end-spikes and singles embedded between normals are ceded to the EWMA steps. Implemented with `shift(..., by = .(subjid, param))` (one- and two-away lag/lead of `tbc.sd`/`ctbc.sd`); the per-SP `shift()` returns `NA` at subject-parameter boundaries, so comparisons never cross SPs.
+
+**Key invariants.** Adjacent-pair comparison assumes the caller's sort is `(subjid, param, agedays, internal_id)` — neighbors in row order are neighbors in age within the same subject-parameter. The jump threshold is strict `> 5` on **both** `tbc.sd` and `ctbc.sd`; the anchor threshold is `<= 3` on **either** scale (lenient). Requiring both scales to jump prevents a false positive when GA correction moves only one of the two z-scores for a potcorr subject.
+
+**Code location.** `R/child_clean.R`, function `calc_otl_evil_twins()`.
+
+### `ewma(agedays, z, ewma.exp, ewma.adjacent = TRUE, window = 15, cache_env = NULL)`
+
+**Purpose.** Core exponentially-weighted moving-average helper. For each observation i, computes a weighted average of all other observations in the group, with weights `(5 + |agedays_i - agedays_j|) ^ ewma.exp_i` and `w_ii = 0`. Returns three variants (`ewma.all`, `ewma.before`, `ewma.after`) that exclude different subsets of the group. It operates on a **single** z-score vector per call; the corrected score is obtained by a **second** `ewma()` call on `ctbc.sd` (the two calls share a delta matrix via `cache_env`).
+
+**Callers.** Three direct call sites in `cleanchild()`:
+
+- Child Step 11 (EWMA1 Extreme) — iterative; calls `ewma()` directly inside a per-group closure, once on `tbc.sd` and once on `ctbc.sd`, passing a shared `cache_env` so the two calls reuse one age-gap delta matrix. (This is **not** the incremental `ewma_cache_*` API.)
+- Child Step 13 — final SDE resolution (`ewma_df`).
+- Child Step 17 — height/HC velocity tiebreaker for 3+-measurement groups (recomputed from scratch each iteration, not cached).
+
+Child Step 15/16 (EWMA2 Moderate) does **not** call `ewma()` directly — it uses the incremental `ewma_cache_init()` / `ewma_cache_update()` machinery instead (see next entry).
+
+**Inputs and return contract.**
+
+- `agedays` — integer vector.
+- `z` — numeric z-score vector, aligned with `agedays` (callers pass `tbc.sd` on the first call and `ctbc.sd` on the second).
+- `ewma.exp` — scalar or per-observation vector. All in-algorithm callers pass a per-observation vector that varies by widest neighbor age gap.
+- `ewma.adjacent` — if FALSE, only `ewma.all` is returned (one-element list).
+- `window` — max Include observations on each side to include; `Inf` disables windowing.
+- `cache_env` — optional environment; when supplied, the windowed age-gap delta matrix is computed once and reused across paired calls on the same `agedays` + exponents (e.g. the `tbc.sd` then `ctbc.sd` calls in Step 11).
+- Returns a named **list** of numeric vectors (not a data.frame). Single-element when `ewma.adjacent = FALSE`.
+
+**Key invariants.** Self-weight is zero, so observation i is excluded from its own EWMA. Groups with `n <= 2` follow first/last-row conventions documented inline. The `+5` constant prevents infinite weight for zero-gap pairs; the negative `ewma.exp` makes weight decay with gap.
+
+**Code location.** `R/child_clean.R`, function `ewma()`.
+
+### `ewma_cache_init(...)` / `ewma_cache_update(...)`
+
+**Purpose.** Incremental EWMA machinery for the iterative EWMA2 loops (Child Steps 15/16). `ewma_cache_init()` builds a per-group weight matrix and initial cached weighted sums; `ewma_cache_update()` removes an excluded observation from the cache in O(n) arithmetic without rebuilding the matrix. (EWMA1 — Child Step 11 — does **not** use this API; it calls `ewma()` directly with a shared `cache_env` delta matrix, see previous entry.)
+
+**Callers.** Used by the EWMA2 (Child Step 15 and Child Step 16) iteration loops in `cleanchild()`; not called by any other step.
+
+**Inputs and return contract.**
+
+- `ewma_cache_init()` — takes the same arguments as `ewma()` plus initial `exclude` state. Returns an environment with the weight matrix, cached row sums, and cached weighted sums per variant.
+- `ewma_cache_update()` — takes the environment plus the position of the newly-excluded observation; mutates the environment in place to reflect the removal, checking up to 2 positions on each side for max-gap shifts.
+- The child `ewma()` function reads from the environment when supplied with `cache_env`.
+
+**Code location.** `R/child_clean.R`, functions `ewma_cache_init()` and `ewma_cache_update()`.
+
+### `as_matrix_delta(agedays)`
+
+**Purpose.** Internal helper that builds an `n × n` matrix of pairwise absolute age differences from an `agedays` vector. Used by `ewma()` and `ewma_cache_init()` for building the age-gap weight matrix.
+
+**Callers.** Two sites, both in the EWMA machinery above.
+
+**Inputs and return contract.** Takes a numeric vector; returns a square numeric matrix. No edge-case guards — a zero-length input returns a `0 × 0` matrix.
+
+**Code location.** `R/child_clean.R`, function `as_matrix_delta()`.
+
+### `calc_and_recenter_z_scores(df, cn, ref.data.path, measurement.to.z = NULL, measurement.to.z_who = NULL)`
+
+**Purpose.** Recalculates recentered z-scores for a perturbed measurement column (`p_plus` / `p_minus`). Applies the same WHO/CDC blending window and NA-fallback logic as the main `cleangrowth()` z-score calculation, then subtracts the precomputed `rcmedian.sd`. The perturbed z-scores (`tbc.p_plus`, `tbc.p_minus`) are computed **once for all rows in `cleangrowth()` preprocessing** (the recentering block) and ride in on `data.df`, so the trajectory steps that consume them (the Child Step 11 and Child Step 15/16 plus/minus checks) read them directly without rebuilding per batch.
+
+**Callers.** Two sites in `cleangrowth()` preprocessing — in the recentering block, right after `tbc.sd`/`ctbc.sd` are formed — once with `cn = "p_plus"` and once with `cn = "p_minus"`. Both callers pass pre-built `measurement.to.z` / `measurement.to.z_who` closures to avoid repeat disk reads. (The NULL-closure fallback in the function body exists only for direct / debugging use.)
+
+**Inputs and return contract.**
+
+- `df` — data.table with `param`, `agedays`, `sex`, `rcmedian.sd`, and the measurement column named by `cn`. Modified in place: intermediate `cn.orig_cdc`, `cn.orig_who`, `cn.orig`, and a new `tbc.<cn>` column are added.
+- `cn` — character scalar column name.
+- `ref.data.path` — only consulted when the closures are NULL.
+- Returns `df` with the new `tbc.<cn>` column. Intermediate `cn.orig*` columns are left on `df` but are not consumed downstream.
+
+**Key invariants.** `rcmedian.sd` must already be populated by the main recentering step; the helper does not re-merge the recentering file.
+
+**Code location.** `R/child_clean.R`, function `calc_and_recenter_z_scores()`. For the underlying z-score mechanics (CSD formula, blending boundaries, NA-fallback logic), see `vignette("wrapper")` → Z-Score Infrastructure.
+
+### `.compute_corrected_z(dt, meas, measurement.to.z, measurement.to.z_who)`
+
+**Purpose.** The Child Step 2b gestational-age corrected-z engine. Computes the **corrected, not-yet-recentered** CSD z-score for an arbitrary measurement vector, holding the GA-correction parameters (`cagedays`, reference `M`/`S_upper`/`S_lower`) fixed at the values derived from the subject's actual first weight, so the **same** correction is applied to the real measurement and to the ±5%-wt / ±1 cm plus/minus perturbations. Three components combined by age: (1) the uncorrected WHO/CDC blend at chronological age (mirrors the main z blend; computed by the shared helper `.gc_uncorrected_z()`, which `cleangrowth()` also uses to rescore the GA-window rows), (2) the gestational-age reference CSD z (`(v_fenton − M)/(S_side · M)`, with WT scaled ×1000 to grams) at gestational-corrected age, and (3) the corrected WHO/CDC z at `cagedays`. The standing/recumbent offset (`.gc_len_offset`, 0.7 cm for both WHO and CDC) is added to HT for the corrected WHO/CDC z when `agedays >= 730 & cagedays < 730` (`.gc_ht_start_day`, the day the references switch to height). HC uses WHO at all ages; HT/WT blend WHO→CDC over ages 2–5. The gestational-age reference z-score is preferred over corrected-WHO for ages ≤2 (when available). The final corrected z: ≤2y uses `sd.c`; 2–4y blends `sd.c` with the uncorrected `sd.orig_m`; else uncorrected. Returns the corrected z vector; subtract `rcmedian.sd` downstream to get `ctbc`.
+
+**Inputs.** `dt` must carry `param`, `agedays`, `sex`, `ageyears_2b`, `cagedays`, `M`, `S_upper`, `S_lower`, `potcorr`; `meas` is the measurement vector to z-score (same length/order as `dt`); the two closures are the CDC-only and WHO-blended `read_anthro()` closures.
+
+**Callers.** `cleangrowth()` Step 2b preprocessing — once each for the actual value (`v + lin_off`), `p_plus`, and `p_minus`, and again for the GA-window rows after their default adjustment (`vignette("wrapper")`, Phase 8, fact 6). The standing/recumbent offset it applies in the GA window is `.gc_len_offset` (0.7 cm), shared with `length.adjust`.
+
+**Code location.** `R/child_clean.R`, function `.compute_corrected_z()`. For the GA-correction narrative (potcorr selection, the corroboration gate), see "Gestational Age Correction (Child Step 2b)" below and `vignette("wrapper")`.
+
+### `.gc_uncorrected_z(param, agedays, sex, meas, measurement.to.z, measurement.to.z_who)`
+
+**Purpose.** The uncorrected CSD z-score at chronological age with the WHO/CDC age blend (WHO under 2 years and for HEADCM, CDC over 5 years, linear blend from 2 to 5 years for weight and height, falling back to whichever reference is available). Returns `sd.orig_who`, `sd.orig_cdc`, and the blended `sd.orig`.
+
+**Callers.** `.compute_corrected_z()` (the uncorrected side of its 2–4 year blend) and the Child Step 2b GA-window adjustment, which rescores window rows after subtracting the offset.
+
+**Code location.** `R/child_clean.R`, function `.gc_uncorrected_z()`. The main z-score calculation in `cleangrowth()` computes the same blend inline.
+
+### `.child_catchup_protect(agedays, tbc.sd, ctbc.sd)`
+
+**Purpose.** Given one `(subjid, param)` group's vectors sorted by agedays, returns a logical vector marking values to PROTECT from trajectory exclusion because they are members of an early preterm catch-up increase. A consecutive Include pair (earlier → later) qualifies when the earlier member is younger than 3 months, the z rises from the earlier to the later member, and the rise stays within `allowed = min(4, 2 + 0.5 × ceiling(max(0, interval_months − 1)))` on at least one of the `tbc` / `ctbc` frames (2 z for the first month, +0.5 z per full-or-partial month after, capped at 4). Both members of a qualifying pair are marked; a value is then kept only if its own `tbc.sd <= -1.5` (genuinely low), since above that gate the corrected frame is ignored.
+
+**Callers.** Child Steps 11, 15, and 16, applied only to GA-corrected subjects (gated on `ctbc.sd != tbc.sd` somewhere in the group), after candidate marking and before worst-value selection. There is no separate corroboration gate here: GA correction itself is now corroboration-gated (see Child Step 2b), so only genuinely-corroborated preterms reach this protection. See "Preterm catch-up protection" under EWMA2 (Child Steps 15/16).
+
+**Contract.** Pure function of the three input vectors; returns a logical vector aligned to the input rows. It can only remove values from candidacy, never add an exclusion.
+
+### Cross-references to wrapper helpers
+
+The child algorithm also uses several wrapper-level helpers; their detailed treatment lives in `vignette("wrapper")` → Shared Helpers:
+
+- `read_anthro(path, cdc.only)` — builds CDC / WHO closures from `inst/extdata/` reference tables. Called once per closure at the top of `cleangrowth()` (and as a fallback inside `calc_and_recenter_z_scores()` when closures are not supplied).
+- `gc_preload_refs(path)` — pre-loads both closures as a list for repeated `cleangrowth()` calls (~0.9 s saved per call).
+
+---
+
+## Architecture: `cleanchild()`
+
+The child algorithm cleaning loop runs in `cleanchild()` in `child_clean.R`. All preprocessing (input validation, unit conversion, z-score calculation, recentering, GA correction, batching, dispatch) is performed by `cleangrowth()` before `cleanchild()` is called — see `vignette("wrapper")` → Architecture: cleangrowth().
+
+### `cleanchild()` — main algorithm (child_clean.R)
+
+Processes one batch of pediatric data through all cleaning steps:
+
+- Early Child Step 13: SDE-Identicals
+- Child Step 5: Temporary SDEs
+- Child Step 6: Carried Forwards (with rescue)
+- Child Step 7: PIV (Absolute, Standardized, and BMI)
+- Child Step 9: Evil Twins
+- Child Step 11: Extreme EWMA (EWMA1)
+- Child Step 13: Final SDE Resolution
+- Child Step 15: Moderate EWMA (EWMA2)
+- Child Step 16: Birth HT/HC (EWMA2 variant for birth values)
+- Child Step 17: Height/HC Velocity Checks
+- Child Step 19: Pairs and Singles Evaluation
+- Child Step 21: Error Load
+- Child Step 22: Output Preparation
+
+Support functions are defined in `child_clean.R` (all child helpers live in the same file as `cleanchild()`; `utils.R` is reserved for cross-algorithm utilities). Full per-function documentation — purpose, callers, inputs, invariants, and code locations — is in the **Support Functions** section above. Quick index:
+
+- `.child_valid()` — row-eligibility filter
+- `.child_exc()` — generate `Exclude-C-*` codes
+- `get_dop()` — designated other parameter lookup
+- `identify_temp_sde()` — temp SDE resolution (7 call sites)
+- `calc_otl_evil_twins()` — Evil Twins OTL calculation
+- `ewma()` + `ewma_cache_init()` / `ewma_cache_update()` + `as_matrix_delta()` — EWMA machinery
+- `calc_and_recenter_z_scores()` — `p_plus` / `p_minus` perturbation z-scores, computed in `cleangrowth()` preprocessing, consumed by the Child Step 11 and 15/16 plus/minus checks
+- `.compute_corrected_z()` — Child Step 2b GA corrected-z engine (actual value + perturbations)
+
+Wrapper-level helpers (`read_anthro()`, `gc_preload_refs()`) are documented in `vignette("wrapper")` → Shared Helpers.
+
+The **unit-error-range** helper family (`.child_z3()`, `.compute_unit_error_range()`, and the shared `.unit_error_range_flag()` band logic) — which builds the default-ON informational `unit_error_range` output column and feeds the Child Step 9 Evil Twins `uer` input — is documented in the cross-algorithm `vignette("algorithm-functions")`. It evaluates the entered (metric) measurement, not the value shifted by the 0.7 cm recumbent/standing offset (`length.adjust`, or the default gestational-age-window presumption; see `vignette("wrapper")`, Phase 8). That offset is applied only where a value is z-scored and is not needed here: a 0.7 cm shift is negligible against the roughly 2.54-fold inch/centimeter conversion factor the check is looking for.
+
+---
+
+## Batching, Dispatch, and Data Requirements
+
+These topics are wrapper-level. See:
+
+- `vignette("wrapper")` → Batching and Dispatch (subject-level batching, outer/inner two-system structure, parallel processing, incremental re-cleans via `gc_partial_run()`, preloaded references via `gc_preload_refs()`)
+- `vignette("wrapper")` → Data Requirements and Input Format (input vectors, unit conversion, sorting, internal identifiers)
+
+---
+
+## Z-Score Summary
+
+High-level summary of the z-score variants the child algorithm uses. The full mechanics — CSD formula, reference tables, WHO/CDC blending formulas, recentering procedure, and the `calc_and_recenter_z_scores()` helper — live in `vignette("wrapper")` → Z-Score Infrastructure.
+
+### Main z-score pipeline (`tbc.sd`)
+
+1. **CSD calculation.** For each measurement, compute a Conditional Standard Deviation z-score against WHO and CDC reference tables: `(measurement − M) / csd_pos` if `measurement >= M`, else `(measurement − M) / csd_neg`. Produces `sd.orig_who` and `sd.orig_cdc`.
+2. **WHO/CDC age blending.** Smooth transition from WHO (< 2 years) to CDC (> 5 years) with a linear blend over 2–5 years. HEADCM uses WHO at all ages. Produces `sd.orig`. Age in years is `agedays / 365.25`, so day 730 (1.9986 years) is scored with WHO only and CDC weight begins at day 731. This differs from the length/height switch, which is at day 730.
+3. **Recentering.** Subtract a fixed age/sex/param-specific population median to produce `tbc.sd = sd.orig − rcmedian.sd`. Recentering removes age-related drift in median z-scores so that comparisons across age are unbiased.
+
+`tbc.sd` is the primary score used by most algorithm steps (Evil Twins, EWMA1/2, velocity). CF rescue and PIV use the un-recentered `sd.orig`.
+
+### Corrected z-score pipeline (`ctbc.sd`, potcorr subjects only)
+
+For subjects whose data are consistent with prematurity or small-for-gestational age (SGA) and who receive an assigned gestational age for cleaning purposes (identified from the first weight), a corrected z-score path runs in parallel:
+
+1. **potcorr identification → AGA conversion.** The Child Step 2b GA correction (which runs in `cleangrowth()` preprocessing — full details in `vignette("wrapper")` → Gestational Age Correction) flags potcorr subjects, assigns a gestational age from first weight, and produces `sd.corr` using gestational-age reference CSD z-scores at corrected age (with corrected-WHO/CDC as fallback above 2 years and a smoothed corrected→original blend over 2–4 years).
+2. **Recentering.** Subtract the same recentering medians: `ctbc.sd = sd.corr − rcmedian.sd`.
+
+`ctbc.sd` is used alongside `tbc.sd` in Evil Twins and EWMA steps to prevent excluding values that are plausible for a baby with very low birth weight.
+
+### Variants reference
+
+| Variable | Description |
+|----------|-------------|
+| `sd.orig_who`, `sd.orig_cdc` | Per-reference CSD z-scores |
+| `sd.orig` | WHO/CDC age-blended CSD z-score; never overwritten by GA correction, so it is also the uncorrected score used in CF rescue (Child Step 6) and PIV (Child Step 7) |
+| `sd.corr` | Gestational-age-corrected z-score for potcorr; equals `sd.orig` for others |
+| `tbc.sd` | `sd.orig − rcmedian.sd` (primary score) |
+| `ctbc.sd` | `sd.corr − rcmedian.sd` (used alongside `tbc.sd`) |
+
+---
+
+## Working Dataframe and Output
+
+### How exclusions work
+
+The algorithm never removes rows from the output. Every input row receives an `exclude` code — either `"Include"` or an exclusion code indicating why and at which step the value was excluded.
+
+Internally, most steps operate on the full `data.df` data.table but filter to currently valid rows using the `.child_valid()` function. When the reference says a value is "excluded," this means:
+
+1. The value's `exclude` column is set to the appropriate exclusion code
+2. Subsequent calls to `.child_valid()` will exclude this row from processing
+3. The value remains in `data.df` with its exclusion code
+
+There is also a softer mechanism: the **temporary SDE** flag. Values marked `"Exclude-C-Temp-Same-Day"` are excluded by default `.child_valid()` calls but can be included by passing `include.temporary.extraneous = TRUE`. This allows steps to optionally include or exclude temp SDEs. Permanent SDE resolution (Child Step 13) replaces temp SDE codes with final codes.
+
+### Key difference from adult algorithm
+
+The adult algorithm copies rows into separate working dataframes (`h_subj_df`, `w_subj_df`) that shrink as values are excluded. The child algorithm keeps all rows in a single `data.df` and uses the `exclude` column plus `.child_valid()` to control which rows participate. Rows are never physically removed from `data.df` during processing (except for a temporary removal of SDE-Identicals during CF string detection, which are re-added after).
+
+---
+
+## Variable Glossary
+
+For input/identification variables (`line`, `id`, `internal_id`, `subjid`, `param`, `agedays`, `sex`, `v`, `v.orig`), z-score variables (`sd.orig*`, `sd.corr`, `rcmedian.sd`, `tbc.sd`, `ctbc.sd`), and prematurity correction variables (`potcorr`, `potcorr_wt`, `uncorr`, `fengadays`, `pmagedays`, `cagedays`), see `vignette("wrapper")` → Variable Glossary (wrapper-level).
+
+This section covers child-specific variables only.
+
+### Exclusion and status variables
+
+| Variable | Type | Created | Description |
+|----------|------|---------|-------------|
+| `exclude` | factor | Preprocessing | Exclusion code or "Include" |
+| `cf_rescued` | character | Child Step 6 | CF rescue reason; empty string for non-rescued rows |
+| `nnte` | logical | Preprocessing | Always FALSE in current code. Retained as a placeholder and has no effect on results. |
+
+### Carried-forward variables (Child Step 6)
+
+All of these are internal Child Step 6 working columns; all are dropped before Child Step 6 exits (via `cols_to_drop_6` or earlier cleanup).
+
+| Variable | Type | Role |
+|----------|------|------|
+| `v.orig` | numeric | Copy of the raw measurement (created in Child Step 5, used in Child Step 6 detection). |
+| `cf_binary` | logical | TRUE if the row is currently `Exclude-C-CF`. Temp, cleaned mid-step. |
+| `originator` | logical | TRUE for an Include whose next row (subject/param/ageday sort order) is a CF. Temp, cleaned mid-step. |
+| `originator_seq` | integer | `cumsum(originator)` per subject-param. Temp, cleaned mid-step. |
+| `cf_string_num` / `cs` | integer | Sequential string number per subject-param. `cs` is the alias retained through the rescue phase. |
+| `originator_z` | numeric | The originator's `sd.orig` z-score, propagated forward to its CFs. Temp, cleaned mid-step. |
+| `seq_win` | integer | Position within a CF string: `0` for originator, `1, 2, 3, ...` for subsequent CFs. |
+| `absdiff` | numeric | \|sd.orig − originator_z\| for each CF. |
+| `ageday_has_include` | logical | TRUE if any row on the same (subjid, param, agedays) has `exclude == "Include"`. Restricts CF rescue eligibility (not originator assignment). |
+| `orig_ageday` | integer | The originator's agedays, propagated forward to its CFs. Used to compute the `cf_dage_orig` design-aid column under `cf_detail`. |
+
+### EWMA variables (internal, not in output)
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `ewma.all` | numeric | EWMA excluding only the current observation |
+| `ewma.before` | numeric | EWMA excluding current + prior observation |
+| `ewma.after` | numeric | EWMA excluding current + next observation |
+| `dewma.all` | numeric | tbc.sd - ewma.all |
+| `dewma.before` | numeric | tbc.sd - ewma.before |
+| `dewma.after` | numeric | tbc.sd - ewma.after |
+
+---
+
+## Output Format
+
+For the full `cleangrowth()` output schema (default columns, optional columns, and where the output trim happens), see `vignette("wrapper")` → Output Format.
+
+The remainder of this section covers child-specific exclusion codes and CF rescue status.
+
+### Complete list of exclusion codes (child algorithm)
+
+**Output levels.** The algorithm internally assigns the literal codes in the **Code (internal)** column below (these are what `cleanchild()` writes via `.child_exc()` and what every step's logic, guards, and `exclude.levels.peds` use). At the end of `cleangrowth()`, a mapping layer translates each internal code into the two reported output levels:
+
+- **Summary** — the default `exclude` column. Consolidated across steps and across child/adult.
+- **Detailed** — the `exclude_detailed` column, added when `exclude_detail = TRUE` (or `full_detail = TRUE`). Step-level; keeps the `-C-` prefix; renames `PIV`→`Hard-Limit`. Shared same-day / preprocessing codes (`Exclude-Identical`, `Exclude-Extraneous`, `Exclude-Missing-Info`, `Exclude-HC-Out-of-Range`) carry no prefix at any level.
+
+The internal literals are **not** renamed in the code; only the output is mapped. Canonical catalog + full crosswalk (incl. adult): `vignette("exclusion-codes")`.
+
+| Code (internal) | Child Step | Param | Detailed (`exclude_detailed`) | Summary (`exclude`) | Description |
+|------|------|-------|-------|-------|-------------|
+| `Include` | — | All | `Include` | `Include` | Value passes all checks |
+| `Exclude-Missing` | Init | All | `Exclude-Missing-Info` | `Exclude-Missing-Info` | Measurement is NA, NaN, `< 0`, or `== 0`; or agedays is NA or `< 0` |
+| `Exclude-Not-Cleaned` | Init | HEADCM | `Exclude-HC-Out-of-Range` | `Exclude-HC-Out-of-Range` | HC with agedays >= 1827 (5 y; WHO HC z-score reference ends at 5 years) |
+| `Exclude-C-Temp-Same-Day` | 5 | All | — (internal only) | — (internal only) | Temp SDE; always resolved by Child Step 13 — if it survives to output, a warning is issued and the row maps to `Exclude-Extraneous` |
+| `Exclude-C-CF` | 6 | All | `Exclude-C-CF` | `Exclude-CF` | Value identical to prior-day value (not rescued) |
+| `Exclude-C-PIV` | 7 | All | `Exclude-C-Hard-Limit` | `Exclude-Hard-Limit` | Outside absolute or standardized population limits, or an impossible same-day BMI |
+| `Exclude-C-Evil-Twins` | 9 | All | `Exclude-C-Evil-Twins` | `Exclude-Extreme` | Adjacent extreme value pair/group |
+| `Exclude-C-Traj-Extreme` | 11 | All | `Exclude-C-Traj-Extreme` | `Exclude-Extreme` | Extreme EWMA outlier |
+| `Exclude-C-Identical` | 13 | All | `Exclude-Identical` | `Exclude-Identical` | Same-day duplicate with identical value |
+| `Exclude-C-Extraneous` | 13 | All | `Exclude-Extraneous` | `Exclude-Extraneous` | Same-day extraneous (resolved by EWMA, all extreme, or single day) |
+| `Exclude-C-Traj` | 15/16 | All | `Exclude-C-Traj` | `Exclude-Pattern` | Moderate EWMA outlier (all sub-rules collapsed) |
+| `Exclude-C-Abs-Diff` | 17 | HT, HC | `Exclude-C-Abs-Diff` | `Exclude-Pattern` | Height/HC velocity exceeded allowed limits |
+| `Exclude-C-Pair` | 19 | All | `Exclude-C-Pair` | `Exclude-Pair` | 2 measurements, one excluded |
+| `Exclude-C-Single` | 19 | All | `Exclude-C-Single` | `Exclude-Single` | Single measurement excluded |
+| `Exclude-C-Unevaluable-Trajectory` | 21 | All | `Exclude-C-Unevaluable-Trajectory` | `Exclude-Traj-Uneval` | Error ratio exceeds threshold |
+
+Note: Exclusion codes are not parameter-specific — the param is in the data row (e.g., `Exclude-C-CF` applies to WT, HT, and HC). The internal `exclude.levels` factor (`exclude.levels.peds` + `exclude.levels.adult`) enumerates the internal literals in the **Code (internal)** column plus the adult codes; the reported levels are enumerated separately in `exclude.levels.summary` / `exclude.levels.detailed`. A code outside the relevant level vector silently becomes `NA` when assigned to its factor, so any new code must be added to the matching vector before use.
+
+### CF rescue status (cf_detail = TRUE)
+
+CF rescue tracking is opt-in via `cf_detail = TRUE`, which adds six columns to the output. The first three describe CF status/rescue; the last three (`imperial`, `cf_dage_orig`, `cf_dage_next`) are design aids for CF-logic development.
+
+| Column | Values | Meaning |
+|--------|--------|---------|
+| `cf_status` | `"Orig"` | Originator of a CF string (value others were carried forward from) |
+| | `"CF-R"` | CF candidate rescued (exclude set back to `"Include"`) |
+| | `"CF-NR"` | Carried-forward value not rescued (rescue-eligible but failed threshold; exclude stays `"Exclude-C-CF"`) |
+| | `"CF-E"` | Same-day-extraneous CF: a CF on a day that also has an Include. Never rescue-eligible; excluded from positional string detection (so no `seq_win`, no `cf_deltaz`); exclude stays `"Exclude-C-CF"` (in `cf_rescue = "all"`, same-day CFs are not excluded at this step and are labelled `CF-R`, with `cf_deltaz` NA; Child Step 13 then chooses one value for the day, so such a row can end as `Exclude-Extraneous`). |
+| | `"Not-CF"` | No CF relationship |
+| | `"Adult"` | Adult row (CF detection not applicable) |
+| `cf_deltaz` | numeric | `\|sd.orig - originator_z\|` for positionally-detected CF candidates. `NA` for Orig, Not-CF, CF-E, and Adult rows. The whole string is decided on its last carried-forward value; values shown on earlier rows are informational. |
+| `cf_nextz` | numeric | Signed change in `sd.orig` from each CF row to the next non-CF Included value within (subjid, param), at the time of Step 6 (temp same-day-extraneous rows are skipped as both source and target). Populated for CF-R and CF-NR; `NA` for Orig, Not-CF, CF-E, Adult, and end-of-series cases. The whole string is decided on its last carried-forward value; values shown on earlier rows are informational. |
+| `imperial` | logical | Row-level whole/half imperial-unit flag: `TRUE` when the value is a whole number of pounds (WEIGHTKG) or a whole/half inch (HEIGHTCM/HEADCM), within 0.01 of the imperial unit. Computed from `v.orig`, so populated for every row regardless of CF status; `NA` on missing-measurement rows (`v.orig` is `NaN`) and Adult rows. |
+| `cf_dage_orig` | integer | Day gap from a CF row's originator to the CF row (`agedays_CF - agedays_orig`; always positive). Populated for positionally-detected CF rows (CF-R/CF-NR) (not same-day CFs in `cf_rescue = "all"`, which are labelled `CF-R` but have `NA`); `NA` for Orig, Not-CF, CF-E, and Adult rows. |
+| `cf_dage_next` | numeric | Day gap from a CF row (CF-R/CF-NR) to the next eligible non-CF Included value (`agedays_next - agedays_CF`; always positive) — the agedays analogue of `cf_nextz`, same eligibility rule. `NA` for Orig, Not-CF, CF-E, Adult, and end-of-series cases. |
+
+The internal `cf_rescued` column (`""`, `"Rescued"`, `"Rescued-All"`) is used during processing but is not returned in the default output.
+
+---
+
+## Configurable Arguments
+
+For wrapper-level arguments (`id`, `adult_cutpoint`, `sd.recenter`, `ref.data.path`, `batch_size`, `parallel`, `cores`, `log.path`, `ref_tables`, `tri_exclude`, `quietly`, `adult_permissiveness`, `adult_scale_max_lbs`), see `vignette("wrapper")` → Configurable Arguments (wrapper-level).
+
+For the full cross-algorithm parameter and threshold index, see `vignette("configuration")`.
+
+This table covers child-specific algorithm parameters only. Per-step subsections under each Child Step section have more detailed descriptions.
+
+| Argument | Default | Used in | Description |
+|-----------|---------|---------|-------------|
+| `cf_rescue` | `"standard"` | Child Step 6 | CF rescue mode: `"standard"` (deltaz/nextz rule), `"none"` (all CFs excluded), `"all"` (every detected CF rescued). |
+| `cf_detail` | FALSE | Child Step 6 | If TRUE, adds diagnostic columns `cf_status`, `cf_deltaz`, `cf_nextz`, `imperial`, `cf_dage_orig`, and `cf_dage_next` to the output. |
+| `piv.z.wt.high` | 22 | Child Step 7 | Upper CSD z cutoff for WEIGHTKG (all ages). Weight has no standardized *low* cutoff — low-WT z asymptotes near -10, so the absolute floors handle it. |
+| `piv.z.ht.low.young` | -25 | Child Step 7 | Lower CSD z cutoff for HEIGHTCM at `ageyears < 1`. |
+| `piv.z.ht.low.old` | -15 | Child Step 7 | Lower CSD z cutoff for HEIGHTCM at `ageyears >= 1`. |
+| `piv.z.ht.high` | 8 | Child Step 7 | Upper CSD z cutoff for HEIGHTCM (all ages). |
+| `piv.z.hc.low` | -15 | Child Step 7 | Lower CSD z cutoff for HEADCM (all ages). |
+| `piv.z.hc.high` | 15 | Child Step 7 | Upper CSD z cutoff for HEADCM (all ages). |
+| `ewma_window` | 15 | Child Steps 11, 13, 15/16, 17 | Maximum number of Include observations on each side that contribute to the EWMA weighting. |
+| `error.load.mincount` | 2 | Child Step 21 | Minimum count of exclusions before a subject-param can be evaluated for error-load escalation. |
+| `error.load.threshold` | 0.5 | Child Step 21 | Ratio of exclusions (numerator excludes SDE/CF/Missing/Not-Cleaned) above which all remaining Includes for the subject-param are excluded. |
+
+---
+
+## Complete List of Steps
+
+| Child Step | Name | Brief description |
+|------|------|-------------------|
+| (preprocessing) | Z-score calculation | WHO/CDC CSD z-scores, blending |
+| (preprocessing) | Child Step 2b: GA correction | Gestational-age correction for potcorr subjects |
+| (preprocessing) | Recentering | Subtract population medians to create tbc.sd/ctbc.sd |
+| Early 13 | SDE-Identicals | Remove same-day identical values before CF detection |
+| 5 | Temporary SDE | Temporarily flag same-day duplicates |
+| 6 | Carried Forwards | Identify and optionally rescue carried-forward values |
+| 7 | PIV | Exclude population implausible values (absolute + standardized + BMI) |
+| 9 | Evil Twins | Exclude adjacent extreme values |
+| 11 | EWMA1 (Extreme) | Exclude extreme EWMA outliers |
+| 13 | Final SDE | Resolve remaining same-day duplicates |
+| 15 | EWMA2 (Moderate) | Exclude moderate EWMA outliers |
+| 16 | Birth HT/HC | EWMA2 variant for birth height and HC values |
+| 17 | Height/HC Velocity | Exclude values exceeding velocity limits |
+| 19 | Pairs and Singles | Evaluate subjects with 1–2 remaining measurements |
+| 21 | Error Load | Exclude all if error ratio too high |
+| 22 | Output | Assemble return columns |
+
+Child Step numbers are not consecutive. Child Steps 3, 4, 8, 10, 12, 14, 18, and 20 either do not exist in the child algorithm or are handled within other steps.
+
+---
+
+## Gestational Age Correction (Child Step 2b, preprocessing)
+
+Child Step 2b runs in `cleangrowth()` preprocessing, before dispatch to `cleanchild()`. Full walkthrough — potcorr identification, reference merge, correction failure handling, and the uncorr revert check — lives in `vignette("wrapper")` → Gestational Age Correction (Child Step 2b, preprocessing).
+
+In brief: subjects whose first weight is consistent with prematurity or small-for-gestational age (SGA) are flagged `potcorr` and receive an assigned gestational age for cleaning purposes. Their z-scores are recomputed against gestational-age reference values at corrected age, with corrected WHO/CDC fallback above 2 years and a smoothed corrected→original blend over 2–4 years. The result is `sd.corr`, which downstream steps read through `ctbc.sd`. By default (`length.adjust = FALSE`), Step 2b also presumes recumbent length for height rows of a corrected subject whose chronological age is 2 years or older but whose corrected age is under 2 years, so it also rescores those rows' uncorrected z-scores (`sd.orig`); see `vignette("wrapper")` → "Phase 4b: GA-window recumbent presumption". The gestational-age reference values and their source are described in `vignette("wrapper")` → "Gestational-age reference values".
+
+**Corroboration gate.** A `potcorr` flag from a single low first weight is only trusted (correction kept) if true prematurity is corroborated by EITHER **form 1** — a consistent early weight trajectory (the uncorr revert check: ≥2 weights < 2y whose corrected early spread is no worse than uncorrected), OR **form 2** — a same-day height *or* head circumference whose own uncorrected z is `<= -1.5` **and** no more than `3.5` z above the first weight's uncorrected z (short, or small-headed, as well as light; the cap stops a merely-somewhat-low HT/HC from corroborating a far-lower weight). A subject corroborated by neither is reverted to uncorrected (`uncorr = 1`, `sd.corr = sd.orig`). This withdraws the false correction from a misplaced-decimal birth weight (low weight but a normal same-day length and no consistent early follow-up) so the implausible value is no longer hidden — it is then caught by the trajectory steps. Form 2 also keeps the correction for real short/small-headed preterms that the form-1 check alone over-reverted. Because form 1, height, and HC are ORed, HC only decides the outcome when there is no early-weight corroboration and no confirming height.
+
+---
+
+## SDE Resolution (Child Step 13, including Early 13)
+
+| | |
+|---|---|
+| **Scope** | All parameters |
+| **Exclusion codes** | `Exclude-C-Identical`, `Exclude-C-Extraneous` |
+| **Code location** | Early Child Step 13 is inline at the top of `cleanchild()` in `child_clean.R`. Main Child Step 13 is later in `cleanchild()` and reuses `identify_temp_sde()` (defined in `child_clean.R`). |
+
+### Overview
+
+Same-day extraneous (SDE) resolution runs in two phases:
+
+1. **Early Child Step 13** (before Child Steps 5/6): Removes same-day identical values so they don't inflate CF string detection
+2. **Main Child Step 13** (after Child Step 11): Permanently resolves all remaining same-day duplicates using EWMA-based selection
+
+### SDE-Identicals (Early Child Step 13)
+
+| | |
+|---|---|
+| **Prior step** | Preprocessing |
+| **Next step** | Child Step 5 (Temporary SDEs) |
+
+Runs on `data.df` before any other cleaning step.
+
+**Logic:**
+
+1. Sort by `subjid, param, agedays, internal_id`
+2. For each `(subjid, param, agedays, v)` group — same subject, parameter, day, AND measurement value — count Include rows
+3. If count > 1, select one to keep via **age-dependent `internal_id` rule** (birth: lowest `internal_id`; other ages: highest `internal_id`)
+4. Others → `Exclude-C-Identical`
+
+Handles partial identicals: [10.5, 10.5, 11.2] excludes one 10.5 but leaves 11.2 untouched.
+
+### Main Child Step 13
+
+| | |
+|---|---|
+| **Prior step** | Child Step 11 (EWMA1) |
+| **Next step** | Child Step 15 (EWMA2) |
+
+After Child Steps 5–11 have removed PIVs, Evil Twins, extreme EWMA outliers, and carried forwards, Child Step 13 permanently resolves all remaining same-day duplicates. It works on a subset (`data.sde`) containing only subjects with same-day measurements, then merges results back.
+
+**Phase A: Setup**
+
+1. Capture temp SDE ids for DOP median exclusion (`temp_sde_ids_step13`)
+2. Safety checks: warn if Include duplicates exist (these would indicate a bug in prior steps)
+3. Re-run `identify_temp_sde()` with `exclude_from_dop_ids` — in Child Step 13, temp SDEs are excluded from DOP median calculation (unlike Child Step 5 where all values contribute)
+4. Pre-filter to subjects with same-day measurements
+
+Before Phase B proper, a defensive assertion checks that every (subjid, param, agedays) group in `data.sde` already has distinct values — Early Child Step 13 (before Child Steps 5/6) resolves every same-day same-value pair among Include rows, `v` is never reassigned afterwards in the child path, and no row re-enters this valid set except `Exclude-C-Temp-Same-Day` → Include (already-Include at the early pass). `Exclude-C-Identical` is therefore assigned in exactly one place (Early Child Step 13); the assertion `stop()`s if the invariant is ever violated, rather than silently re-deriving the same answer.
+
+**Phase B1: One-Day SDE + SDE-All-Extreme**
+
+For subject-params with data on only ONE unique day (`one_day_sde_flag`):
+
+1. **SDE-All-Extreme**: If the closest value to the day's median is still `> 2` SD away, ALL values on that day are marked `Exclude-C-Extraneous`. Threshold: strict `> 2`.
+
+2. **DOP medians**: For one-day SDEs, cross-parameter medians provide a secondary sort key. DOP mapping: WT↔HT, HC→HT. Uses only fully included values (`!was_temp_sde`).
+
+3. **One-Day selection**: Sort by:
+ - `absdiff_rel_to_median` ascending
+ - `absdiff_dop_for_sort` ascending (Inf if NA)
+ - Age-dependent `internal_id` tiebreaker. Keep first; others → `Exclude-C-Extraneous`
+
+**Phase B2: SDE-EWMA resolution**
+
+For subject-params with data on multiple days:
+
+1. Compute EWMA from fully included non-temp-SDE values only. **Robust drop:** a lone far value (`exclude == "Include"`, `> 3` z from the SP provisional median, with `n_far == 1` for the subject-param) is also excluded from this EWMA, mirroring the robust median drop in `identify_temp_sde`. This stops a lingering end-spike extreme — one the Evil Twins anchor rule cedes to Traj, so it is still Include at Step 13 — from inflating `spa_ewma` at an adjacent SDE day and falsely tripping SDE-All-Extreme into excluding **both** members of a plausible same-day pair.
+2. The EWMA is computed on both the uncorrected z (`tbc.sd` → `ewma.all`) and the GA-corrected z (`ctbc.sd` → `c.ewma.all`), using the same rows and exponents. For subjects without GA correction, `ctbc.sd == tbc.sd`, so `c.ewma.all == ewma.all`.
+3. Assign EWMA values to temp SDEs by copying the `ewma.all` (and `c.ewma.all`) from their non-SDE same-day counterpart
+4. `spa_ewma = max(ewma.all)` and `c.spa_ewma = max(c.ewma.all)` per `(subjid, param, agedays)` — used as the reference points
+5. `absdewma = |tbc.sd - spa_ewma|` and `c.absdewma = |ctbc.sd - c.spa_ewma|` for each row
+6. **Corrected date** (`corr_date`): a `(subjid, param, agedays)` group where any eligible value has `ctbc.sd != tbc.sd`, i.e. the same-day values are themselves GA-corrected. Only corrected dates use the corrected frame in the next two steps; every other date (children without GA correction, and GA-corrected children once their values are no longer corrected) uses the uncorrected frame only.
+7. **SDE-All-Extreme**: If `min_absdewma > 1` for a group with 2+ eligible values — and, on a corrected date, also `c.min_absdewma > 1` (or the corrected value is missing) — all → `Exclude-C-Extraneous`. Threshold: strict `> 1`.
+8. **SDE-EWMA selection**: On a corrected date, sort eligible values by `c.absdewma` ascending, then `absdewma` ascending, then the age-dependent `internal_id` tiebreaker. On any other date, sort by `absdewma` ascending, then the tiebreaker. Keep first → Include; others → `Exclude-C-Extraneous`
+
+**Phase B3: Merge back**
+
+SDE results are merged back to `data.df` by `internal_id` (`data.df <- merge(data.df, sde_results, by = "internal_id", all.x = TRUE)`). Only rows that were Include or Temp-SDE are overwritten — permanent exclusions from prior steps (PIV, Evil Twins, etc.) are preserved. Extra columns from SDE processing are dropped.
+
+### Rationale
+
+- **EWMA-based tiebreaking for multi-day subject-params** uses the trajectory context built up by the other cleaning steps. By the time Main Child Step 13 runs, extreme outliers (Child Steps 7, 9, 11) have been excluded, so the remaining EWMA is a reasonable proxy for the subject's true trajectory.
+- **One-day-only subject-params get a cross-parameter check (DOP)** because without multiple days there is no trajectory to anchor selection; using the other parameter's value (e.g., height for weight) adds a sanity check that the kept SDE is consistent with the child's overall size.
+- **SDE-All-Extreme thresholds (`> 2` and `> 1`) are strict** to avoid excluding entire SPAs when a single plausible value is within reach of the trajectory; the asymmetry between the one-day (`> 2`) and EWMA-based (`> 1`) thresholds reflects the weaker trajectory information available for one-day SPAs.
+- **Both frames for GA-corrected subjects.** For a GA-corrected preterm infant, uncorrected z rises steeply during catch-up, and the uncorrected EWMA lags behind because early NICU values are still in its window. A correct same-day value can then sit more than 1 above the uncorrected EWMA. Requiring both frames to be extreme before SDE-All-Extreme fires matches the both-frames requirement in Child Steps 11 and 15/16. The keeper is chosen on the corrected frame because the lagging uncorrected EWMA would favor a wrong value that happens to sit just below it. The corrected frame is used only on dates whose values are themselves corrected: once a child's values are no longer corrected, the corrected EWMA can still be shifted by earlier corrected values in its window, so those dates keep the uncorrected-frame rule.
+- **Two-phase SDE resolution (Early 13 → Child Step 5 → Main 13)** separates the cheap, unambiguous case (same-day identicals) from the harder case (same-day non-identicals) so that CF string detection does not confuse identical SDEs with carried-forward strings.
+
+### Configurable arguments in scope for Child Step 13
+
+None. The SDE-All-Extreme thresholds (`> 2` one-day and `> 1` EWMA-based) are hardcoded.
+
+### Variables created and dropped
+
+All Main Child Step 13 working variables live on the `data.sde` subset (or on `ewma_df`, which is merged back into `data.sde`). They are not carried back to `data.df` at merge time: the Phase B3 block (the `setdiff(names(data.df), keep_cols_sde)` drop) drops every column not in `keep_cols_sde` (captured as `keep_cols_sde <- names(data.df)` before Phase B construction). The Phase A defensive assertion (`dup_check`) is dropped inline, before Phase B.
+
+- **Phase B1 (one-day):** `was_temp_sde`, `n_days_with_data`, `has_sde_day`, `one_day_sde_flag`, `median_tbc`, `absdiff_rel_to_median`, `min_absdiff_rel_to_median`, `HT_dop_med`, `WT_dop_med`, `HC_dop_med`, `absdiff_dop_med`, `absdiff_dop_for_sort`, `tiebreaker_oneday`, `keep_id_oneday`.
+- **Phase B2 (EWMA):** `ewma_df` scratch columns (`diff_before`, `diff_after`, `maxdiff`, `ageyears`, `exp_val`, `ewma.all`, `ewma.before`, `ewma.after`, `c.ewma.all`), then on `data.sde` after the merge: `ewma.all`, `ewma.before`, `ewma.after`, `c.ewma.all`, `spa_ewma`, `c.spa_ewma`, `absdewma`, `c.absdewma`, `n_available`, `min_absdewma`, `c.min_absdewma`, `corr_date`, `tiebreaker_ewma`, `keep_id_ewma`. (`ewma_fill` and `c_ewma_fill` are created and dropped inline.)
+
+Inside the separately-called `identify_temp_sde()` (invoked from Phase A), the scratch columns `median.spz`, `median.dopz`, `absdmedian.spz`, `absdmedian.dopz`, `extraneous.this.day`, `extraneous`, and `orig_row` live on a copy of the input and are discarded when the helper returns — they never reach `data.sde` or `data.df`.
+
+No persistent columns are added to `data.df` by Step 13.
+
+### Checklist findings
+
+1. **DOP mapping consistent:** All three Phase B1 DOP median branches (`HT_dop_med`, `WT_dop_med`, `HC_dop_med`) follow the canonical mapping — WT↔HT is symmetric, HC→HT is asymmetric (HC uses HT as its anchor; HT does not use HC).
+2. **Boundaries:** SDE-All-Extreme `> 2` (one-day) and `> 1` (EWMA-based) — both strict. Age-dependent id tiebreaker uses `internal_id` (not the user's `id`) in Child Step 13.
+3. **`.child_valid()` calls:** Temp SDEs included when building the `data.sde` subset. EWMA computed on Include-only rows (excludes temp SDEs). DOP medians exclude temp SDEs via `!was_temp_sde`.
+4. **Merge safety:** Only Include and Temp-SDE rows are overwritten on merge-back — permanent exclusions from earlier steps are preserved.
+5. **Parameter scope:** All three params are handled. DOP has a param-specific mapping (see `get_dop()`).
+6. **Factor levels:** All SDE exclusion codes (`Exclude-C-Identical`, `Exclude-C-Extraneous`) exist in `exclude.levels`.
+
+---
+
+## Temporary SDE Resolution (Child Step 5)
+
+| | |
+|---|---|
+| **Scope** | All parameters |
+| **Operates on** | Valid rows (via `.child_valid()`, includes temp SDEs) |
+| **Prior step** | Early Child Step 13 (SDE-Identicals) |
+| **Next step** | Child Step 6 (Carried Forwards) |
+| **Exclusion code** | `Exclude-C-Temp-Same-Day` |
+| **Code location** | Inline in `cleanchild()` in `child_clean.R`; dispatches to `identify_temp_sde()` (defined in `child_clean.R`) without the Step-13 `exclude_from_dop_ids` argument. |
+
+### Overview
+
+After identical same-day values have been removed, remaining same-day duplicates (SDEs with **different** values) need temporary resolution. Child Step 5 selects the most plausible value for each same-day group and temporarily excludes the others. These temporary exclusions are revisited in Child Step 13 (final SDE resolution) after the dataset has been further cleaned.
+
+The function `identify_temp_sde()` is also reused in Child Step 13 with different parameters (see Child Step 13).
+
+### Key terms
+
+| Term | Meaning |
+|---|---|
+| SP median | Subject-parameter median: median `tbc.sd` for a given subject and parameter, across all valid values |
+| DOP median | Designated-other-parameter median: the SP median of the other parameter for the same subject (WT↔HT, HC→HT) |
+| `absdmedian.spz` | Absolute distance from `tbc.sd` to SP median |
+| `absdmedian.dopz` | Absolute distance from `tbc.sd` to DOP median |
+
+### Logic
+
+**Input:** A data.table with columns `id, internal_id, subjid, param, agedays, tbc.sd, exclude`.
+
+**Child Step 5a — Identify SDE days:** For each `(subjid, param, agedays)` group, if more than one valid row exists, all rows in the group are flagged as `extraneous.this.day = TRUE`.
+
+**Child Step 5b — Compute SP medians:** For each `(subjid, param)`, compute `median.spz` = median of `tbc.sd` across ALL valid values (not just non-SDE days). If exactly one **Include** value in the group sits `> 3` z from the provisional median, it is dropped from this computation (robust SP median — see `identify_temp_sde()` in Support Functions); the same carve-out applies to the DOP median in the Step 13 path.
+
+**Child Step 5c — Compute DOP medians:** For each parameter, look up the SP median of its designated other parameter for the same subject:
+
+- WEIGHTKG → uses HEIGHTCM median
+- HEIGHTCM → uses WEIGHTKG median
+- HEADCM → uses HEIGHTCM median
+
+In Child Step 5, all valid values contribute to DOP medians. In Child Step 13 (when this function is reused), temp SDEs are excluded from DOP median calculation via the `exclude_from_dop_ids` parameter.
+
+**Child Step 5d — Compute distances:** For each SDE-day row:
+
+- `absdmedian.spz = |tbc.sd - median.spz|`
+- `absdmedian.dopz = |tbc.sd - median.dopz|`
+
+Fallback logic when medians are unavailable:
+
+1. If SP median is NA but DOP median exists: use DOP median as the primary distance (`absdmedian.spz = |tbc.sd - median.dopz|`)
+2. If both medians are NA: use `|tbc.sd|` (treat 0 as median)
+3. If DOP median is NA: set `absdmedian.dopz = Inf` (sorts last)
+
+**Child Step 5e — Select value to keep:** Within each `(subjid, param, agedays)` group, sort by:
+
+1. `absdmedian.spz` ascending (closest to SP median first)
+2. `absdmedian.dopz` ascending (closest to DOP median as tiebreaker)
+3. Age-dependent `internal_id` tiebreaker:
+ - At birth (`agedays == 0`): `internal_id` ascending (keep lowest)
+ - At other ages: `internal_id` descending (keep highest)
+
+The first value after sorting is kept; all others are marked `extraneous = TRUE`.
+
+**Child Step 5f — Return result:** The function returns a logical vector in the original row order (not the `keyby`-sorted order), indicating which rows should be excluded. The caller sets these rows to `Exclude-C-Temp-Same-Day`.
+
+### Rationale
+
+- **SP median as primary:** The value closest to the subject's own trajectory (as captured by their median z-score) is most likely correct.
+- **DOP median as tiebreaker:** When two values are equally close to the SP median, the one whose z-score is also closer to the other parameter's median is preferred. This cross-parameter check adds robustness.
+- **Temporary resolution:** This is intentionally conservative — the dataset still contains errors that could distort medians. Child Step 13 re-resolves SDEs after PIV, Evil Twins, and EWMA1 have removed more extreme values.
+
+### Safety check
+
+After Child Step 5, the code verifies that no `(subjid, param, agedays)` group has more than one `Include` row. If duplicates are found, a warning is issued (indicates a bug in `identify_temp_sde()`).
+
+### Configurable arguments in scope for Child Step 5
+
+None. Selection uses SP median → DOP median → age-dependent `internal_id` tiebreaker — all hardcoded.
+
+### Variables created and dropped
+
+- `v.orig` (created): A copy of the measurement values before any transformations. Created just before Child Step 5 runs, used in Child Step 6 CF detection (exact value comparison) and the `imperial` design-aid flag. Dropped after Child Step 6.
+- `subj.dup` (created): List of subject IDs that have at least one temporary SDE. Used for efficiency in later steps that only need to process SDE subjects.
+
+### Checklist findings
+
+1. **DOP mapping consistent:** WT↔HT, HC→HT, same mapping used in Child Step 13.
+2. **Boundaries:** Ties broken by age-dependent `internal_id` (lowest at birth, highest otherwise).
+3. **`.child_valid()` call:** Includes temp SDEs (the candidates being resolved).
+4. **Parameter scope:** All three params handled.
+5. **Factor level:** `Exclude-C-Temp-Same-Day` exists in `exclude.levels`.
+6. **Safety check:** Post-step verifier has never fired in testing.
+
+---
+
+## Carried Forwards (Child Step 6)
+
+| | |
+|---|---|
+| **Scope** | All parameters |
+| **Prior step** | Child Step 5 (Temporary SDEs) |
+| **Next step** | Child Step 7 (PIV) |
+| **Exclusion code** | `Exclude-C-CF` |
+| **Controlled by** | `cf_rescue` (`"standard"` default / `"none"` / `"all"`); `cf_detail` for diagnostic columns |
+| **Code location** | CF logic inline in `cleanchild()` in `R/child_clean.R` |
+
+A carried-forward (CF) value is a measurement exactly equal to the prior day's value for the same subject and parameter — typically a data-entry artifact rather than an independent re-measurement. Child Step 6 detects CFs, groups them into strings (a non-CF originator followed by the CFs that copy it forward), and either leaves them `Exclude-C-CF` or rescues them back to `Include`. In the default `cf_rescue = "standard"` mode, each string is decided on its last CF using the deltaz/nextz rule: rescue when the carried value lies on a plausibly flat or declining trajectory, exclude when it is a notch the child has grown past. `cf_rescue = "none"` excludes all detected CFs; `cf_rescue = "all"` rescues all of them. Optional `cf_detail = TRUE` adds six diagnostic columns (`cf_status`, `cf_deltaz`, `cf_nextz`, and three development aids).
+
+**This step is documented in full — detection, how carried-forward strings are processed, the rescue rule and its rationale, and the diagnostic columns — in `vignette("cf-rescue")`.**
+
+---
+
+## PIV: Population Implausible Values (Child Step 7)
+
+| | |
+|---|---|
+| **Scope** | All parameters |
+| **Operates on** | Valid rows including temp SDEs |
+| **Prior step** | Child Step 6 (Carried Forwards) |
+| **Next step** | Child Step 9 (Evil Twins) |
+| **Exclusion codes** | `Exclude-C-PIV` |
+| **Code location** | Inline in `cleanchild()` in `R/child_clean.R` |
+
+### Overview
+
+PIV identifies measurements that are biologically impossible or extremely unlikely, using three blocks applied in sequence:
+
+1. **Absolute PIV** — fixed limits on raw measurements (`v`).
+2. **Standardized PIV** — cutoffs on unrecentered CSD z-scores (`sd.orig`).
+3. **BMI limits** — limits on the BMI of same-day weight-height pairs, using only values that passed blocks 1 and 2.
+
+After all three blocks, the temp-SDE identification is rerun: all rows currently flagged `Exclude-C-Temp-Same-Day` are reset to `Include`, then `identify_temp_sde()` is called against the post-PIV state.
+
+The working `valid_set` is computed once at the top of the step via `.child_valid(data.df, include.temporary.extraneous = TRUE)` and reused across all three PIV blocks. It contains `Include` rows and rows flagged `Exclude-C-Temp-Same-Day`; any other non-`Include` row is not in `valid_set` and so cannot be assigned `Exclude-C-PIV` here.
+
+### Absolute PIV thresholds
+
+All conditions use strict `<` or `>` (not `<=` / `>=`). Rows that match get `exclude := "Exclude-C-PIV"`.
+
+**Weight (WEIGHTKG):**
+
+| Condition | Threshold | Rationale |
+|---|---|---|
+| First year (`agedays <= 365`) | `v < 0.2` kg | Published minimum viable birth weight; allows preterm |
+| After first year (`agedays > 365`) | `v < 1` kg | Minimum plausible outpatient weight |
+| Birth (`agedays == 0`) | `v > 10.5` kg | Maximum plausible birth weight |
+| `ageyears < 2` | `v > 40` kg | Highest plausible weight under 2y |
+| Any age | `v > 600` kg | Published maximum human weight |
+
+**Height (HEIGHTCM):**
+
+| Condition | Threshold | Rationale |
+|---|---|---|
+| Any age | `v < 18` cm | — |
+| Any age | `v > 244` cm | Published maximum |
+| Birth (`agedays == 0`) | `v > 65` cm | — |
+
+**Head circumference (HEADCM):**
+
+| Condition | Threshold | Rationale |
+|---|---|---|
+| Any age | `v < 13` cm | — |
+| Any age | `v > 75` cm | Published maximum |
+| Birth (`agedays == 0`) | `v > 50` cm | Birth maximum |
+
+### Standardized PIV thresholds
+
+Uses **unrecentered** z-scores (`sd.orig`). Each cutoff is a user-settable `cleangrowth()` parameter; the default values (shown in the tables below) preserve the prior hardcoded behavior. The standardized block adds a `!grepl(piv_pattern, exclude)` guard where `piv_pattern <- "^Exclude-C-PIV$"`. The guard skips rows that the absolute block just assigned `Exclude-C-PIV`, because `valid_set` was computed before the absolute block ran and therefore still treats those rows as valid. Rows originally flagged `Exclude-C-Temp-Same-Day` that were not hit by absolute PIV can be overwritten to `Exclude-C-PIV` by the standardized block; the 7d temp-SDE rerun afterward re-flags any SPA that still has a duplicate Include.
+
+**Weight:**
+
+| Condition | Threshold | Parameter (default) |
+|---|---|---|
+| Any age | `sd.orig > piv.z.wt.high` | `piv.z.wt.high` (22) |
+
+Weight has **no** standardized low cutoff. With a positive weight the CSD z below the median asymptotes to `-M/csd_neg` as the weight → 0, peaking near -10 in infancy and shallower elsewhere, so a low-weight z can never reach a useful cutoff — the absolute floors (`v < 0.2` kg under 1y, `v < 1` kg after) catch low weights instead. (HT/HC keep their low cutoffs because those z's *are* reachable just above their absolute floors.)
+
+**Height:**
+
+| Condition | Threshold | Parameter (default) |
+|---|---|---|
+| `ageyears < 1` | `sd.orig < piv.z.ht.low.young` | `piv.z.ht.low.young` (-25) |
+| `ageyears >= 1` | `sd.orig < piv.z.ht.low.old` | `piv.z.ht.low.old` (-15) |
+| Any age | `sd.orig > piv.z.ht.high` | `piv.z.ht.high` (8) |
+
+The default upper HT cutoff (`piv.z.ht.high = 8`) is tighter than the default upper WT cutoff (`piv.z.wt.high = 22`). Analysis of CHOP data showed the `±15`/`±25` range was too loose for heights.
+
+**Head circumference:**
+
+| Condition | Threshold | Parameter (default) |
+|---|---|---|
+| Any age | `sd.orig < piv.z.hc.low` | `piv.z.hc.low` (-15) |
+| Any age | `sd.orig > piv.z.hc.high` | `piv.z.hc.high` (15) |
+
+### BMI limits
+
+Weight and height are each checked on their own above, so a weight and a height that are each plausible can still give an impossible BMI (for example, a low-normal weight with a high-normal height). The BMI block catches these. It runs after the absolute and standardized blocks, so a value already excluded as PIV never feeds a BMI.
+
+**Pairs.** Every same-day combination of a weight and a height among the remaining `valid_set` rows (temp SDEs included, so a day with two weights and one height gives two pairs). BMI = `v` (kg) / (`v` (cm) / 100)^2.
+
+**Out-of-range pair** (all strict, like the absolute limits):
+
+| Condition | Threshold |
+|---|---|
+| Any age | BMI `< 3` |
+| `ageyears < 2` | BMI `> 50` |
+| `ageyears >= 2` | BMI `> 150` |
+
+**Which value is excluded.** A value is excluded only if none of its same-day pairings is in range. For each out-of-range pair:
+
+- If only one of the two values has no in-range pairing that day, that value is excluded. (Example: two weights and one height on a day; one weight gives an out-of-range BMI and the other does not. The height has an in-range pairing, so the first weight is excluded.)
+- If neither value has an in-range pairing (always the case when the day has one weight and one height), the value with the larger `|sd.orig|` is excluded. A missing `sd.orig` counts as 0; an exact tie excludes the weight.
+- If both values have in-range pairings, nothing is excluded.
+
+Excluded values get the same code as the other PIVs, `Exclude-C-PIV`. The BMI limits are not user-configurable.
+
+### Temp SDE re-evaluation (7d)
+
+After all three PIV blocks, all rows currently flagged `Exclude-C-Temp-Same-Day` are reset to `Include`, then `identify_temp_sde()` is rerun on the full dataset. This mirrors the Step-5 temp-SDE logic against the post-PIV state: if the prior temp-SDE keeper on an SPA has just been excluded as PIV, another value in that SPA becomes the flagged duplicate.
+
+### Rationale
+
+- **Two PIV blocks (absolute then standardized)** catch complementary error modes. Absolute PIV catches data that is impossible regardless of reference standard (e.g., a weight of 800 kg). Standardized PIV catches values that are plausible in isolation but implausible for a human (e.g., a height z-score of -50 — the raw value might be 30 cm, which is within the absolute range but impossibly short).
+- **Different age bands for the lower HT standardized cutoff** (`< 1 year` vs. `>= 1 year`): Very young children, especially preterm infants, have much wider normal z-score ranges on the low side; CDC/WHO references don't extend to very low birth weights, so an uncorrected z-score of -20 can be normal for a 24-week preemie whose gestational-age-corrected z-score is within range. (Weight has no lower standardized cutoff — see the Weight note above.)
+- **Tighter upper HT cutoff (`piv.z.ht.high = 8`) than upper WT (`piv.z.wt.high = 22`):** Heights are bounded biologically; a z-score of 22 for height is impossible, while extremely high weight z-scores are observed in real severe-obesity data.
+- **Uncorrected z-scores (`sd.orig`):** Standardized PIV runs against the reference z-score (pre-GA-correction) because the PIV cutoffs are meant to catch data-entry errors — applying GA correction first would narrow the range on a preterm weight and make the PIV boundary effectively parameter-specific.
+- **BMI limits after the individual limits:** Weight and height limits can each be met by a pair whose combination is impossible, which is common in cross-sectional data where each child has one weight and one height. Running the BMI check last means it only judges pairs whose values are individually plausible. The limits are wide (BMI under 3, or over 50 under 2y and over 150 from 2y) so they catch only impossible combinations, not very thin or very heavy children.
+- **Temp SDE re-evaluation after PIV:** PIV can exclude the row that was the temp-SDE keeper on an SPA, at which point a different value in the SPA needs to be promoted to Include and the other values re-flagged.
+
+### Configurable arguments in scope for Child Step 7
+
+Six user-settable standardized-PIV cutoffs: `piv.z.wt.high` (22), `piv.z.ht.low.young` (-25), `piv.z.ht.low.old` (-15), `piv.z.ht.high` (8), `piv.z.hc.low` (-15), `piv.z.hc.high` (15). Weight has no standardized low cutoff. Absolute-PIV thresholds (`v < 0.2` kg, `v > 244` cm, etc.) and the BMI limits are not user-configurable.
+
+### Variables created and dropped
+
+- `ageyears`: created at the top of Child Step 7 for age threshold checks, dropped at the end of the step.
+- `piv_pattern`: local character scalar (`"^Exclude-C-PIV$"`) used as the standardized-block guard and to drop PIV rows from the BMI pairs; not stored on `data.df`.
+- `bmi_rows`, `bmi_pairs`, `bmi_out`, `bmi_excl`: local tables/vectors for the BMI block; not stored on `data.df`.
+
+### Checklist findings
+
+1. **Operates-on set.** `.child_valid(data.df, include.temporary.extraneous = TRUE)` is the correct selector for PIV: Include plus temp-SDE rows.
+2. **Boundaries — all strict inequalities.** `< 0.2`, `< 1`, `> 10.5`, `> 244`, `< -25`, `> 22`, etc. A weight of exactly 0.2 kg is not excluded; a standardized z of exactly `-25` is not excluded.
+3. **Age boundary at 1 year.** Standardized PIV uses `ageyears < 1` vs. `ageyears >= 1`. A child whose `ageyears` equals 1 exactly falls in the `>= 1` band.
+4. **Valid-set refresh.** `valid_set` is computed once and not refreshed between absolute and standardized PIV. The standardized block relies on the `!grepl(piv_pattern, exclude)` guard to skip rows just assigned `Exclude-C-PIV` by the absolute block. Non- `Include` rows other than `Exclude-C-Temp-Same-Day` are not in `valid_set` and so cannot be overwritten by Child Step 7.
+5. **Parameter scope.** All three params (WEIGHTKG, HEIGHTCM, HEADCM) have their own absolute and standardized thresholds. The BMI block uses WEIGHTKG and HEIGHTCM only; pairs are formed by `(subjid, agedays)`.
+6. **Factor levels.** `Exclude-C-PIV` is present in `exclude.levels`; absolute and standardized PIV share the single code.
+7. **Standardized-PIV cutoffs are parameterized.** Six `piv.z.*` cutoffs flow from `cleangrowth()` through `cleanchild()` into Child Step 7. See the "Configurable arguments in scope for Child Step 7" subsection above.
+
+---
+
+## Evil Twins (Child Step 9)
+
+| | |
+|---|---|
+| **Scope** | All parameters |
+| **Operates on** | Valid rows, excluding temp SDEs, requiring ≥ 4 eligible (Include, non-temp-SDE) values per subject-param |
+| **Prior step** | Child Step 7 (PIV) |
+| **Next step** | Child Step 11 (EWMA1 — Extreme EWMA) |
+| **Exclusion code** | `Exclude-C-Evil-Twins` |
+| **Code location** | Inline in `cleanchild()` in `child_clean.R`; support function `calc_otl_evil_twins()` also defined in `child_clean.R` |
+
+### Overview
+
+Evil Twins identifies adjacent measurements that are both extreme — pairs (or longer runs) of consecutive values far from the subject's trajectory. When two such values sit next to each other, each distorts the other's EWMA enough that neither looks out of line on a neighbor-weighted basis, so EWMA-based exclusions alone can miss them. Child Step 9 catches these values before EWMA processing (Child Steps 11, 15, 16).
+
+The step is **iterative**: it finds the single worst OTL value, excludes it, recalculates OTL on the remaining values, and repeats until no OTL values remain.
+
+### OTL calculation (`calc_otl_evil_twins`)
+
+A value is "over the limit" (OTL) only as an **inner member of an anchored over-the-limit pair**. Within a subject-param (rows in agedays order, `internal_id` breaking same-day ties), consider four consecutive eligible values A, B, C, D. The inner pair (B, C) is *over the limit* when its jump exceeds 5 on **both** `tbc.sd` and `ctbc.sd`; the pair is *anchored* when each outer flank holds its adjacent inner member to within 3 on **either** scale (A anchors B, D anchors C). When both hold, B and C are flagged OTL; the outer anchors A and D are not.
+
+**Key details:**
+
+- **Jump** threshold is strict `> 5` on both scales (a difference of exactly 5.0 is not over the limit); **anchor** threshold is `<= 3` on either scale. Requiring both `tbc.sd` and `ctbc.sd` to jump prevents false positives where gestational-age correction moves one z-score across the boundary for potcorr subjects but the other does not.
+- A missing flank (no A before B, or no D after C) disqualifies the pair, so single end-spikes and singles embedded between normal values are ceded to the EWMA steps rather than excluded here.
+- "Flank"/"adjacent" means the next or prior rows within the same `(subjid, param)`; `shift()` with `by = .(subjid, param)` returns `NA` at subject-param boundaries, so comparisons never cross subject-params (relies on the caller's sort).
+- A subject-param with fewer than 4 rows cannot form an A,B,C,D group, so `otl` is `FALSE` for all of its rows.
+
+### Child Step 9 main logic
+
+**9a. Setup:**
+
+- Sort `data.df` by `(subjid, param, agedays, internal_id)` — this must happen **before** `valid_set` is computed, because `valid_set` is a boolean vector aligned to row position; reordering after would misalign it.
+- Require **≥ 4 eligible (Include, non-temp-SDE) values** per `(subjid, param)` — the anchor rule needs an A,B,C,D group, so an SP with fewer than 4 eligible values cannot form an evaluable pair. (`sp_count_9` is now the count of *eligible* rows, not all rows.)
+- `valid_set`: `.child_valid(data.df, include.temporary.extraneous = FALSE)` combined with `sp_count_9 >= 4L`. Temp SDEs do not participate.
+- **OTL detection** is the 4-value anchor rule (`calc_otl_evil_twins()`): a value is OTL only as an inner member (B or C) of an over-the-limit pair whose jump exceeds 5 on BOTH `tbc.sd` and `ctbc.sd`, flanked by stable outer values (A before B, D after C) each within 3 on EITHER scale. Single end-spikes and singles embedded between normals are ceded to EWMA.
+- Run `calc_otl_evil_twins()` once on the initial valid rows as a cheap early exit — if no row is OTL globally, skip the per-group loop entirely.
+
+**9b. Per-group processing:** If any row in the initial pass is OTL, iterate over the unique `(subjid, param)` groups that contain at least one OTL row. For each group:
+
+1. Extract the valid rows for that `(subjid, param)` as a local `df` copy (group sizes are typically 3–30 rows).
+2. Skip groups with fewer than 4 valid rows.
+3. **While loop** — iterate until no OTL remains (or fewer than 4 eligible Include values remain, ceding the rest to the EWMA steps). Each pass excludes ONE OTL value, selected by this precedence:
+   - **a. UER3.** If the group's values split cleanly into a unit-error group (the per-value `unit_error_range` flag) and a plausible group (`|tbc.sd| < 3`), the unit-error group is all one z-sign, and the raw-measurement mean ratio of the two groups is in the unit-conversion band (WT 1.7–2.7, HT/HC 2.04–3.04), exclude the OTL candidate with the highest `|tbc.sd|` (the unit-error block).
+   - **b. Windowed-median band.** Otherwise, for each OTL candidate compute `med_diff = |tbc.sd − windowed_median|`, where the windowed median is the median of Include `tbc.sd` within ±4 positions of the candidate (kept local so a long declining/varied tail elsewhere can't collapse the gap between a lone dip and an on-trajectory plateau). If ≥2 candidates fall within 1 of the maximum `med_diff` (a bunch the median can't discriminate), exclude the highest `|tbc.sd|` among them, tiebreak `internal_id`.
+   - **c. Otherwise** exclude the highest `med_diff`, tiebreak `|tbc.sd|`, tiebreak `internal_id`.
+
+   Mark the selected row `Exclude-C-Evil-Twins`, recompute OTL on the remaining Include rows, and continue. (`unit_error_range` per-value flags are computed once per batch at Step 9 entry.)
+4. Collect `line` values of all rows marked `Exclude-C-Evil-Twins` in this group.
+
+**9c. Apply exclusions:** After all groups are processed, the accumulated `et_excl_lines` are applied to `data.df` in a single bulk update setting `exclude := .child_exc(param, "Evil-Twins")` (which produces `"Exclude-C-Evil-Twins"` — `.child_exc()` accepts but ignores the `param` argument; codes are not param-specific).
+
+**9d. Cleanup and temp-SDE re-evaluation:**
+
+- Drop `sp_count_9`.
+- Reset every row currently flagged `Exclude-C-Temp-Same-Day` to `Include`, then rerun `identify_temp_sde()` against the post-Evil-Twins state. Only the temp-SDE identification is rerun, not all of Child Step 5.
+
+### Rationale
+
+- **"Adjacent extreme pair" problem:** Two consecutive implausible values separated by |Δz| > 5 from each other — but each within 5 of the next or prior value — would each have a plausible-looking EWMA dominated by the other twin. EWMA-based steps (11, 15, 16) would miss both. Child Step 9 catches these before EWMA runs.
+- **Dual requirement (both `tbc.sd` AND `ctbc.sd` must differ by > 5):** For potcorr subjects, gestational-age correction can shift one z-score (`ctbc.sd`) while leaving the other (`tbc.sd`) near a boundary, or vice versa. Requiring both to trigger prevents false positives where one correction pipeline sees a jump but the other does not.
+- **Iterative with one exclusion per pass:** Excluding the single worst value and recomputing may break the OTL condition for the other value (it was only OTL because of its twin). This avoids excluding legitimate measurements as collateral damage.
+- **4+ eligible values required:** The anchor rule needs an A,B,C,D group, so a subject-param with fewer than 4 eligible values cannot form an evaluable pair; Pairs/Singles (Child Step 19) handles short subject-params separately.
+- **`internal_id` tiebreaker (not age-dependent):** By the time Child Step 9 runs, PIV and CF have already resolved the types of birth-specific cases that need age-dependent handling; using a simple deterministic tiebreaker here is sufficient.
+
+### Configurable arguments in scope for Child Step 9
+
+None. The OTL jump threshold (`> 5` on both `tbc.sd` and `ctbc.sd`) and the anchor threshold (`<= 3` on either scale) are hardcoded in `calc_otl_evil_twins()`.
+
+### Variables created and dropped
+
+- `elig_9` (created): per-row eligibility flag (`.child_valid(..., include.temporary.extraneous = FALSE)`). Dropped at the end of Child Step 9.
+- `sp_count_9` (created): per-`(subjid, param)` count of *eligible* rows, used as the `>= 4L` gate. Dropped at the end of Child Step 9.
+- `otl` (local to `calc_otl_evil_twins()`): OTL flag per row, recomputed each iteration within a group; not persisted to `data.df`.
+
+### Checklist findings
+
+1. **Count gate is a correctness gate, not an optimization:** `sp_count_9` counts *eligible* (Include, non-temp-SDE) rows, and the `>= 4L` gate is required — deleting it would index past the ends of a short subject-param. Groups that pass are re-checked at `length(grp_idx) < 4L`, and `nrow(incl) < 4L` is re-checked at the top of each iteration.
+2. **Boundaries:** OTL threshold is strict `> 5`. Tiebreaker uses lowest `internal_id` (not age-dependent, unlike the birth-aware tiebreaking used by SDE steps).
+3. **`.child_valid()` flags:** `include.temporary.extraneous = FALSE` — Evil Twins operates on the "clean" view without SDE candidates.
+4. **Sort order:** Explicit `order(subjid, param, agedays, internal_id)` before `valid_set` computation. The inline comment explains why the sort must precede `valid_set`: reordering after would misalign the boolean vector against row positions.
+5. **Both `tbc.sd` and `ctbc.sd` used:** The dual threshold prevents false positives for potcorr subjects, where gestational-age correction can move one z-score close to the neighbor but not the other.
+6. **Parameter scope:** All three params (WEIGHTKG, HEIGHTCM, HEADCM) are handled uniformly; Evil Twins is not param-specific.
+7. **Factor levels:** `Exclude-C-Evil-Twins` is present in `exclude.levels`.
+8. **Efficiency:** Cheap early exit via a single global `calc_otl_evil_twins()` call; only subject-params with OTL rows enter the per-group loop; groups are small and independent. The while loop typically runs 1–3 iterations per group.
+
+---
+
+## EWMA1: Extreme EWMA (Child Step 11)
+
+| | |
+|---|---|
+| **Scope** | All parameters |
+| **Operates on** | Include values only (no temp SDEs), requiring 3+ per subject-param |
+| **Prior step** | Child Step 9 (Evil Twins) |
+| **Next step** | Child Step 13 (Final SDE Resolution) |
+| **Exclusion code** | `Exclude-C-Traj-Extreme` |
+| **Code location** | Inline in `cleanchild()` in `child_clean.R`; support functions `ewma()` and `identify_temp_sde()` also defined in `child_clean.R` |
+
+### Overview
+
+EWMA1 flags extreme outliers using Exponentially Weighted Moving Averages. For each measurement, the EWMA predicts what the value "should" be based on the subject's other measurements for the same parameter. Values that deviate extremely from their EWMA prediction are flagged `Exclude-C-Traj-Extreme`.
+
+The step is **iterative at two levels**:
+
+1. Per subject-param: flag at most ONE worst value per pass.
+2. Globally: repeat across all subject-params until no new exclusions occur.
+
+This prevents one extreme value from distorting the EWMA of nearby values and causing a cascade of false exclusions.
+
+The step has three blocks:
+
+- **11a. Pre-filter / setup** — count and extreme filters narrow the set of subject-params, and the subjects that currently carry temp SDEs are captured for later targeted recalculation.
+- **11b. Iteration loop** — global while loop; each pass processes one subject-param at a time via a per-group closure, flags at most one worst value, and runs a targeted temp-SDE recalc.
+- **11c. End-of-step temp SDE refresh** — global reset + rerun of `identify_temp_sde()` before Child Step 13.
+
+### 11a. Pre-filter / setup
+
+Two pre-filters narrow the work:
+
+1. **Count filter:** Subject-params with `<= 2` Include values are skipped (EWMA needs 3+ points).
+2. **Extreme filter:** Subject-params where no Include value has `|tbc.sd| > 3.5` are skipped — if the most extreme z-score does not exceed 3.5, no value can meet the `tbc.sd > 3.5` criterion.
+
+In addition, the subjects that currently carry `Exclude-C-Temp-Same-Day` are captured up front as `subj_with_sde`; the iteration loop only recalculates temp SDEs for subjects that are in this set AND produce a new EWMA1 exclusion in a given pass.
+
+### 11b. Iteration loop
+
+Each pass processes one subject-param at a time via a per-group closure operating on a copy of the group's rows (`copy(.SD)`). The closure performs four computations and at most one exclusion.
+
+#### EWMA computation
+
+For each subject-param group with `> 2` Include values:
+
+1. **Exponent calculation** — age-gap-dependent exponent using linear interpolation:
+   - Gap <= 1 year: exponent = -1.5
+   - Gap >= 3 years: exponent = -3.5
+   - Between: linear interpolation (`-1.5 - (ageyears - 1)`)
+   - `ageyears` is based on the maximum of the gap before and after each measurement.
+
+2. **EWMA computation** — calls `ewma()` with windowed matrix operations. Three variants are computed:
+   - `ewma.all`: excluding only the current observation
+   - `ewma.before`: excluding current + prior
+   - `ewma.after`: excluding current + next
+   - The same three are computed for `ctbc.sd` (corrected), prefixed with `c.`. If `ctbc.sd == tbc.sd` for all rows (vast majority — non-potcorr subjects), the ctbc columns are copied rather than recomputed.
+
+3. **Deviation (dewma)**:
+   - `dewma.all = tbc.sd - ewma.all`
+   - `dewma.before = tbc.sd - ewma.before`
+   - `dewma.after = tbc.sd - ewma.after`
+   - `c.dewma.all = ctbc.sd - c.ewma.all`
+
+#### Exclusion criteria
+
+A value is a potential exclusion (`pot_excl = TRUE`) if ALL of:
+
+**Positive outlier:**
+
+- `dewma.all > 3.5`
+- `dewma.before > 3`
+- `dewma.after > 3`
+- `tbc.sd > 3.5`
+- plus/minus check (uncorrected): `tbc.p_minus - ewma.all > 3.5` AND `tbc.p_minus > 3.5`
+- corrected check: `ctbc.sd` is NA, OR (`c.dewma.all > 3.5` AND the corrected plus/minus check `ctbc.p_minus - c.ewma.all > 3.5` AND `ctbc.p_minus > 3.5`)
+
+**OR negative outlier:**
+
+- `dewma.all < -3.5`
+- `dewma.before < -3`
+- `dewma.after < -3`
+- `tbc.sd < -3.5`
+- plus/minus check (uncorrected): `tbc.p_plus - ewma.all < -3.5` AND `tbc.p_plus < -3.5`
+- corrected check: `ctbc.sd` is NA, OR (`c.dewma.all < -3.5` AND `ctbc.p_plus - c.ewma.all < -3.5` AND `ctbc.p_plus < -3.5`)
+
+The plus/minus check protects a value from exclusion when nudging the measurement in the less-extreme direction (a ±5% weight or ±1 cm height/HC change, recentered to `tbc.p_*` / `ctbc.p_*`) would bring it within threshold — covering expected short-term variation (bladder fullness, clothing) and measurement precision. It runs on the uncorrected z (against `ewma.all`) and, for GA-corrected values, on the corrected z (against `c.ewma.all`). For non-potcorr subjects `ctbc.sd` equals `tbc.sd`, so the corrected checks repeat the uncorrected ones.
+
+**Additional constraints:**
+
+- The **last** Include value is never excluded here (its EWMA is one-sided). The first (birth) value is **not** auto-protected, so an extreme birth error is catchable in Step 11; a legitimate birth is instead protected only by the catch-up rule below.
+- **Preterm catch-up protection:** for a GA-corrected subject, `.child_catchup_protect()` protects both members of an early (< 3 mo) rising pair whose z-rise stays within the cap (see that helper) on at least one frame and whose own `tbc.sd <= -1.5`. This protects legitimate fast early catch-up. The same helper is used by Child Steps 15/16. There is no separate corroboration gate on the protection — GA correction itself is corroboration-gated upstream (Child Step 2b), so only corroborated preterms are corrected and thus reach this protection.
+- At most ONE value is flagged per subject-param per iteration.
+
+#### Worst-value selection
+
+When more than one value meets criteria, the worst is selected by `order(pot_excl, abs(tbc.sd + dewma.all), -internal_id, decreasing = TRUE)[1]`. The sort key `abs(tbc.sd + dewma.all)` combines the z-score magnitude with its deviation — values that are both extreme and far from EWMA prediction score highest. Lowest `internal_id` breaks ties.
+
+#### Iteration bookkeeping
+
+After each per-group pass:
+
+1. Subject-params with a NEW exclusion this pass are identified (comparing `had_ewma1_before` flags against the post-pass state).
+2. Temp SDEs are recalculated ONLY for subjects that are both in `subj_with_sde` (had a temp SDE going into Child Step 11) AND produced a new exclusion this pass — the post-pass recalc block resets those subjects' temp SDEs to Include and reruns `identify_temp_sde()` on that subset. A temp SDE can never be flagged during a pass (only Include rows are exclusion candidates), but this recalc can **promote** a set-aside temp SDE to Include; since the next iteration reprocesses exactly the subject-params that just excluded, a promoted value can then be excluded as `Exclude-C-Traj-Extreme` in a later iteration.
+3. The next iteration's `sp_to_process` is the set of subject-params with new exclusions from this pass.
+4. The loop terminates when no subject-param produces a new exclusion.
+
+### 11c. End-of-step temp SDE refresh
+
+After the loop, all `Exclude-C-Temp-Same-Day` rows are reset to Include and `identify_temp_sde()` is run globally across the full dataset. This final pass catches any residual drift left by the per-iteration targeted recalc, which only handles subjects that started with temp SDEs. It does NOT use `exclude_from_dop_ids` — that DOP-median biasing is specific to Child Step 13.
+
+### Rationale
+
+- **"Extreme" EWMA (Child Step 11) vs. "moderate" EWMA (Child Steps 15/16):** Splitting EWMA into two passes lets the extreme pass run before SDE resolution (Child Step 13) and velocity checks (Child Step 17). Extreme outliers distort the median, the SP/DOP checks used by SDE, and the neighbor-to-neighbor differences used by velocity — removing them first makes the downstream steps more reliable.
+- **High thresholds (3.5 / 3 / 3.5 / 3) for both `dewma` and `tbc.sd`:** All four conditions together make this an "extreme" filter. Values that meet these thresholds are essentially never legitimate measurements.
+- **Corrected-z check (`c.dewma.all > 3.5`):** For non-potcorr subjects, `ctbc.sd` equals `tbc.sd`, so the corrected check repeats the uncorrected one. For potcorr subjects, an extreme value must be extreme in both the uncorrected and corrected z-scores to be excluded.
+- **Age-gap-dependent EWMA exponent:** Shorter gaps (within 1 year) use a less-negative exponent (-1.5), giving nearby neighbors more weight. Longer gaps (3+ years) use -3.5, appropriate for widely-spaced data where only the closest values carry meaningful signal.
+- **Last value never excluded:** EWMA is unreliable at the endpoints (only one neighbor informs the prediction), so the last value is never excluded here. The first/birth value is not auto-protected — it is protected only as part of a legitimate preterm catch-up rise — so an extreme birth error is catchable in this step. Endpoints not excluded here fall to Child Steps 15/16 (moderate EWMA) and Child Step 19 (pairs/singles).
+- **At most one exclusion per subject-param per pass:** Prevents the EWMA of one extreme value from pulling other values into the excluded region in a single pass. After recomputing, the "next worst" may no longer look extreme.
+- **Pre-filter by `|tbc.sd| > 3.5`:** If the most extreme z-score in a subject-param is below the `tbc.sd > 3.5` criterion, no value can meet it — cheap way to skip a large fraction of subject-params in typical data.
+
+### Configurable arguments in scope for Child Step 11
+
+| Parameter | Default | Role |
+|---|---|---|
+| `ewma_window` | 15 | Maximum number of Include observations on each side that contribute to the EWMA weighting. Passed into `ewma()`. Same parameter used in Child Steps 11, 13, 15/16, and 17. |
+
+Child Step 11 thresholds (`> 3.5`, `> 3`, `< -3.5`, `< -3`) are not user-configurable.
+
+### Variables created and dropped
+
+All EWMA working columns (`ewma.all`, `ewma.before`, `ewma.after`, `c.ewma.all`, `c.ewma.before`, `c.ewma.after`, `dewma.all`, `dewma.before`, `dewma.after`, `c.dewma.all`) are computed inside the per-group closure on a local copy (`copy(.SD)`) and are not persisted to `data.df`. Bookkeeping columns (`had_ewma1_before`, `subj_with_sde`, `sp_to_process`) are local to the iteration loop and cleaned up at the end.
+
+### Checklist findings
+
+1. **Boundaries — all strict:** `> 3.5`, `> 3`, `< -3.5`, `< -3` for dewma; `> 3.5` / `< -3.5` for `tbc.sd` and `c.dewma.all`.
+2. **`.child_valid()` call:** Correctly excludes temp SDEs via `include.temporary.extraneous = FALSE`. Only Include values participate in EWMA calculation and as exclusion candidates.
+3. **ctbc optimization:** Skips ctbc EWMA computation when `ctbc.sd == tbc.sd` (copies `ewma.*` to `c.ewma.*` instead). Correct for non-potcorr subjects, which are the vast majority.
+4. **Parameter scope:** All 3 params (WEIGHTKG, HEIGHTCM, HEADCM) handled uniformly.
+5. **Factor levels:** `Exclude-C-Traj-Extreme` exists in `exclude.levels`.
+6. **Efficiency:** Good — two levels of pre-filtering (count + extreme), targeted SDE recalc, and subject-params drop out of the loop as they stop producing exclusions.
+7. **`ewma_window` parameter:** Passed through to `ewma()` — controls max Include observations on each side (default 15).
+8. **Boundaries — tiebreaker:** `internal_id` is the final tiebreaker in the worst-value `order()` call (lowest `internal_id` wins).
+
+---
+
+## EWMA2: Moderate EWMA (Child Steps 15/16)
+
+| | |
+|---|---|
+| **Scope** | Child Step 15: all params (birth HT/HC excluded — except an HT/HC SP with exactly 3 valid values one of which is a birth, where the birth is kept; see Overview); Child Step 16: birth HT/HC only |
+| **Operates on** | Include values only (no temp SDEs), 3+ per subject-param |
+| **Prior step** | Child Step 13 (Final SDE Resolution) |
+| **Next step** | Child Step 17 (Height/HC Velocity) |
+| **Exclusion codes** | `Exclude-C-Traj` (all moderate EWMA sub-rules collapsed into one code) |
+| **Code location** | Inline in `cleanchild()` in `child_clean.R`. Reads the `tbc.p_plus`/`tbc.p_minus` (and `ctbc.*`) z-scores built in `cleangrowth()` preprocessing; uses `ewma_cache_init()` / `ewma_cache_update()` for the incremental EWMA inside the iteration loop, and `get_dop()` for the Step 15 `last-ext` DOP lookup. |
+
+### Overview
+
+EWMA2 uses the same EWMA mechanism as EWMA1 but with **lower thresholds** and **position-specific rules**. Where EWMA1 catches extreme outliers (thresholds ~3.5), EWMA2 catches moderate outliers (thresholds ~1–4 depending on position and context).
+
+Child Step 15 handles all measurements except birth HT/HC. Step 16 handles birth HT/HC separately because birth values have different clinical expectations and need higher thresholds.
+
+**Birth HT/HC in a 3-value SP.** There is one exception to "birth HT/HC excluded from Step 15." If an HT/HC subject-param has **exactly 3 valid values, one of which is a birth** (`agedays == 0`), the birth is kept as a normal Step 15 participant — it enters the EWMA *and* is exclusion-eligible (scored by the birth-value rules, which fire on `agedays == 0` for any param). For SPs with ≥ 4 valid values the birth is excluded from Step 15 and evaluated only in Step 16. Rationale: removing the birth from a 3-value SP would leave only 2 non-birth values, below the 3-value threshold Step 15 needs, so the whole SP would drop out of Step 15 and an extreme non-birth value could reach Include (e.g. a very high HC a few days after a normal birth HC — Step 11 protects it as the last value, and HC velocity does not bound short intervals, so only Step 15 can catch it). Keeping the birth lets Step 15 evaluate the SP. Because Step 16 only processes HT/HC SPs that still have ≥ 3 valid values, if Step 15 excludes any value from such a 3-value SP it falls below Step 16's gate and the birth is not re-evaluated there, so the two steps do not double-handle the birth. The set of qualifying SPs (`keep_birth_sp15`) is computed once from the initial valid counts and held fixed so the incremental EWMA cache only ever sees removals.
+
+### Inputs (computed before the iteration loop)
+
+**p_plus / p_minus:** For each valid measurement, compute a ±5% (weight) or ±1 cm (height/HC) perturbation:
+
+- WEIGHTKG: `p_plus = 1.05*v`, `p_minus = 0.95*v`
+- HEIGHTCM: `p_plus = v+1`, `p_minus = v-1`
+- HEADCM: `p_plus = v+1`, `p_minus = v-1`
+
+These are converted to recentered z-scores (`tbc.p_plus`, `tbc.p_minus`, `ctbc.p_plus`, `ctbc.p_minus`) once in `cleangrowth()` preprocessing. The addcrit perturbation check (detailed below) tests whether the measurement would still be an outlier if nudged slightly toward its neighbors — a robustness check that reduces false positives for values near exclusion boundaries.
+
+**first_meas:** Marks the first non-birth Include measurement per subject-param. Used for the "first" exclusion rules. HT/HC birth is handled by Child Step 16 (except the `keep_birth_sp15` 3-value exception above), so for HT/HC `first_meas` is the first non-birth value.
+
+### Additional criteria (addcrit)
+
+All EWMA2 rules require `addcrit` — a supplementary check that the measurement differs from BOTH neighbors by more than 1 SD even after a ±5%/±1cm perturbation toward each neighbor. This protects values that are close to a neighbor: even if EWMA says the value is outlying, if it sits within 1 SD of a neighbor (even after the nudge), it is likely real. The check runs on the uncorrected z and, for GA-corrected values, on the corrected z as well.
+
+**Neighbor difference variables** (computed within each subject-param group, in agedays order; each is the difference to the next/prior Include neighbor):
+
+- Uncorrected: `tbc_diff_next/prior` (from `tbc.sd`), `tbc_diff_plus_next/prior` (from `tbc.p_plus`), `tbc_diff_minus_next/prior` (from `tbc.p_minus`)
+- Corrected: `ctbc_diff_next/prior` (from `ctbc.sd`), `ctbc_diff_plus_next/prior` (from `ctbc.p_plus`), `ctbc_diff_minus_next/prior` (from `ctbc.p_minus`)
+
+`tbc.p_plus`/`tbc.p_minus` and `ctbc.p_plus`/`ctbc.p_minus` are the recentered z-scores of the perturbed measurements, built in preprocessing with the same WHO/CDC blending — and, for the corrected versions, the same gestational-age-correction pathway — as the original z-scores. For a non-corrected value `ctbc == tbc` and `ctbc.p == tbc.p`, so the corrected clauses equal the uncorrected ones and add nothing.
+
+**addcrithigh** — the value must stay more than 1 SD above each neighbor on the uncorrected z and the corrected z, including under both perturbations:
+```
+dewma.before > 1 & dewma.after > 1 &
+ ((tbc_diff_next   > 1 & tbc_diff_plus_next   > 1 & tbc_diff_minus_next   > 1) | is.na(tbc_diff_next)) &
+ ((tbc_diff_prior  > 1 & tbc_diff_plus_prior  > 1 & tbc_diff_minus_prior  > 1) | is.na(tbc_diff_prior)) &
+ ((ctbc_diff_next  > 1 & ctbc_diff_plus_next  > 1 & ctbc_diff_minus_next  > 1) | is.na(ctbc_diff_next)) &
+ ((ctbc_diff_prior > 1 & ctbc_diff_plus_prior > 1 & ctbc_diff_minus_prior > 1) | is.na(ctbc_diff_prior))
+```
+
+**addcritlow:** Mirror with `< -1` for all comparisons.
+
+NA handling: endpoints have NA for their missing neighbor (first row has NA prior, last row has NA next), so `addcrit` passes on that side automatically.
+
+### Child Step 15 exclusion rules
+
+All rules require:
+
+1. The appropriate `addcrit` (addcrithigh or addcritlow)
+2. `dewma.all` threshold (uncorrected)
+3. `c.dewma.all` threshold (corrected) — when `c.dewma.all` is available, it must also exceed the threshold (for non-potcorr subjects `ctbc.sd` equals `tbc.sd`, so this repeats the uncorrected check): `(c.dewma.all > threshold | is.na(c.dewma.all))`
+
+| Rule | Position | Gap | dewma.all | c.dewma.all | Extra condition |
+|---|---|---|---|---|---|
+| middle | Not first/last | — | `> 1` / `< -1` | `> 1` / `< -1` | — |
+| birth-WT | `agedays == 0` | next `< 365.25` | `> 3` / `< -3` | `> 3` / `< -3` | — |
+| birth-WT-ext | `agedays == 0` | next `>= 365.25` | `> 4` / `< -4` | `> 4` / `< -4` | — |
+| first | `first_meas` | next `< 365.25` | `> 2` / `< -2` | `> 2` / `< -2` | — |
+| first-ext | `first_meas` | next `>= 365.25` | `> 3` / `< -3` | `> 3` / `< -3` | — |
+| last | Last row | prev `< 2*365.25` | `> 2` / `< -2` | `> 2` / `< -2` | `abs(tbc_prev) < 2` |
+| last-high | Last row | prev `< 2*365.25` | `> abs(tbc_prev)` / `< -abs(tbc_prev)` | `> min(abs(tbc_prev), 3)` / `< -min(abs(tbc_prev), 3)` | `abs(tbc_prev) >= 2` |
+| last-ext | Last row | prev `>= 2*365.25` | `> 3` / `< -3` | `> 3` / `< -3` | `abs(tbc_prev) < 2`, DOP diff |
+| last-ext-high | Last row | prev `>= 2*365.25` | `> 1+abs(tbc_prev)` / `< -1-abs(tbc_prev)` | **`> 3` / `< -3`** | `abs(tbc_prev) >= 2`, DOP diff |
+
+**Note:** For last-high and last-ext-high the uncorrected `dewma.all` bar scales with `abs(tbc_prev)`, and the corrected `c.dewma.all` gate is held at or below that bar: `min(abs(tbc_prev), 3)` for last-high (so it never exceeds the uncorrected bar), and a fixed 3 for last-ext-high (whose bar `1 + abs(tbc_prev)` is always `>= 3`). So the corrected gate never sits above a value's own uncorrected bar.
+
+**Gap definitions:**
+
+- birth-WT, first: gap = `agedays[next] - agedays` (to next measurement)
+- last: gap = `agedays[last] - agedays[last-1]` (from prior measurement)
+
+**first_meas definition:**
+
+- WEIGHTKG: first Include row per subject-param where `agedays > 0` (birth WT is handled by birth-WT rules)
+- HEIGHTCM/HEADCM: first Include row among non-birth rows per subject-param (birth HT/HC excluded from Child Step 15 entirely — handled by Child Step 16)
+
+**DOP diff (last-ext and last-ext-high):** Cross-parameter check. For positive outliers: `tbc.sd - tbc_dop > 4` (or `tbc_dop` is NA). For negative: `tbc.sd - tbc_dop < -4` (or `tbc_dop` is NA). Where `tbc_dop` is the same-day DOP value if available, otherwise the median `tbc.sd` of all DOP values. If no DOP data exists, `tbc_dop` is NA and the check passes.
+
+**Key boundaries:**
+
+- Gap thresholds: `< 365.25` vs `>= 365.25` (strict `<`); `< 2*365.25` vs `>= 2*365.25` for last
+- All dewma thresholds are strict `>`/`<`
+- `abs(tbc_prev) < 2` vs `>= 2` distinguishes "normal prior" from "extreme prior" for last-value rules
+
+### Birth HT/HC (Child Step 16)
+
+Separate step for birth height and HC values, using the same EWMA infrastructure but with birth-specific rules only. Uses the same addcrit definitions and c.dewma.all pattern as Child Step 15.
+
+| Rule | Gap to next | dewma.all (high / low) | c.dewma.all (high / low) |
+|---|---|---|---|
+| birth-HT-HC | `< 365.25` | `> 2` / `< -3` | `> 2` / `< -3` |
+| birth-HT-HC-ext | `>= 365.25` | `> 3` / `< -4` | `> 3` / `< -4` |
+
+The high-side thresholds (`> 2` / `> 3`) match Step 15's non-birth first-value bar; the low side stays looser (`< -3` / `< -4`). So Step 16 is looser only for *smaller* (low) births: a high birth value that drops to normal (e.g. a birth length/HC z just over 4 falling to ~2) is judged at the same bar as any other first value and excluded, while a low birth value rising in legitimate preterm catch-up keeps the wider tolerance.
+
+Only processes HT/HC subject-params that themselves have a birth measurement (agedays == 0) with 3+ Include values. A subject with birth HT but no birth HC (or vice versa) has only the birth-carrying param processed here. Structurally identical to Child Step 15 (iterative, cached EWMA, one exclusion per iteration).
+
+### Preterm catch-up protection
+
+After candidates are marked and before worst-value selection, both Child Step 15 and Child Step 16 protect the members of an early catch-up increase from exclusion (helper `.child_catchup_protect()`). Preterm infants legitimately rise quickly in z during early infancy, so a fast early increase should not be treated as an outlier.
+
+The protection applies only to GA-corrected subjects (those with `ctbc.sd != tbc.sd` for some value). For a consecutive Include pair (earlier → later, in agedays order) it protects **both** members when:
+
+1. the earlier member is younger than 3 months,
+2. the z-score rises from the earlier to the later member (upward only — an early *drop* keeps the normal stricter thresholds, since a drop is more likely a real error), and
+3. the rise does not exceed `allowed = min(4, 2 + 0.5 × ceiling(max(0, interval_months − 1)))` on at least one of the uncorrected (`tbc`) or corrected (`ctbc`) frames — 2 z for the first month, +0.5 z per full-or-partial month after, capped at 4 z. See the `.child_catchup_protect()` Support Function entry for the canonical statement.
+
+A value is then protected only if its own uncorrected z is itself low (`tbc.sd <= -1.5`). Above that gate the corrected frame is ignored, so a value that is not low but whose corrected z was raised by GA correction is left as a candidate. Both members of a qualifying pair are protected — protecting only the later (catch-up) value would be pointless if the earlier baseline value were then dropped. The protection only removes values from candidacy; it never creates an exclusion, and it leaves non-corrected subjects unchanged.
+
+### Isolated low uncorrected birth-WT guard
+
+A second, weight-only protection runs in Child Step 15 (after the birth-WT rules mark candidates, before worst-value selection) for the *uncorrected* case the catch-up protection above does not cover. A birth weight (row 1, `agedays == 0`) is un-flagged when **all** of:
+
+1. it is **uncorrected** (`ctbc.sd == tbc.sd`),
+2. it is low (`tbc.sd < -2`),
+3. it is **isolated** — the next Include weight is `>= 2*365.25` days away (the same window as form-1 GA-correction corroboration), and
+4. `abs(tbc.sd) + (tbc.sd[next] - tbc.sd) <= 7`.
+
+The intent: a fairly-plausible low birth weight should not be dragged out merely because a distant string of high weights pulls the EWMA up. Only when the birth is *both* substantially low *and* the jump to the next weight is large (sum `> 7`) is it excluded. This is gated to WEIGHTKG and to uncorrected births because corrected preterm catch-up is already handled by `.child_catchup_protect()` above. Like the catch-up protection, it only removes the birth from candidacy and never creates an exclusion.
+
+### Worst-value selection
+
+Both steps use `abs(tbc.sd + dewma.all)` as the sort key (same as EWMA1). Ties on the sort key are broken by lowest `internal_id` — the row with the lowest `internal_id` among the tied candidates becomes the exclusion. Ties are rare because `abs(tbc.sd + dewma.all)` is continuous, but `internal_id` makes the selection deterministic.
+
+### Global iteration
+
+Same pattern as EWMA1: subject-params drop out when they stop producing new exclusions. EWMA caches (`ewma2_caches`, `ewma2b_caches`) persist across iterations for incremental updates. Step 15's DOP snapshot (used by the `last-ext` and `last-ext-high` rules) is refreshed each iteration; Step 16 has no DOP lookup.
+
+### Rationale
+
+- **"Moderate" thresholds (1, 2, 3, 4) by position:** Middle measurements have neighbors on both sides, so a smaller deviation (|dewma| > 1) plus the `addcrit` check is enough. First and last measurements have only one-sided context, so higher thresholds (2 or 3) avoid false positives; the exact threshold depends on how far the gap is.
+- **Gap-dependent thresholds (`< 365.25` vs. `>= 365.25`, `< 2*365.25` vs. `>= 2*365.25`):** A value an unusual distance from a close-in-time neighbor is more suspicious than the same distance over a multi-year gap, during which the child's trajectory may legitimately have shifted.
+- **`addcrit` (perturbation check):** Even when EWMA says a value is off-trajectory, if the measurement is within 1 SD of an adjacent value — even after ±5% or ±1 cm perturbation — the two look like they came from the same trajectory on a neighbor-to-neighbor basis. Excluding it would create a spurious gap.
+- **Multiplicative perturbation for weight (±5%), additive for height/HC (±1 cm):** Weight changes are naturally proportional; ±5% reflects expected measurement precision at any weight. Height/HC are typically measured to the nearest centimeter, so ±1 cm is the rounding tolerance regardless of absolute length.
+- **Birth HT/HC as a separate step (Child Step 16):** Birth heights and HCs have different clinical expectations and much wider plausible ranges than later measurements (growth is rapid; GA is uncertain). The **low-side** thresholds stay wider (−3 / −4) to reflect this (a low birth value rising in legitimate catch-up), while the **high side** was tightened to Step 15's first-value bar (2 / 3) so an implausibly high birth value that drops to normal is still caught. Separating the logic keeps Child Step 15's rules cleaner.
+- **`last-high` and `last-ext-high` cap the corrected check at the uncorrected bar:** The `dewma` threshold scales with `abs(tbc_prev)` to allow higher tolerance for already-extreme trajectories. The corrected-z gate is `min(abs(tbc_prev), 3)` for last-high and a fixed 3 for last-ext-high — at or below the value's own uncorrected bar, so a genuinely implausible value is not excused just because the prior value was unusual, while the corrected gate never rises above the uncorrected bar (which for `abs(tbc_prev)` in `[2,3)` a fixed 3 would have done, silently over-tightening).
+- **DOP diff for `last-ext` rules:** When the time gap is large, the DOP comparison acts as a sanity check against trajectory drift — a weight that jumps up alone without the corresponding height change is more suspicious than a coordinated shift.
+
+### Configurable arguments in scope for Child Steps 15/16
+
+| Parameter | Default | Role |
+|---|---|---|
+| `ewma_window` | 15 | Maximum number of Include observations on each side that contribute to the EWMA weighting. Same parameter used in Child Steps 11, 13, 15/16, and 17. |
+
+Moderate EWMA thresholds (1, 2, 3, 4) and the ±5% / ±1 cm perturbation magnitudes are not user-configurable.
+
+### Variables created and dropped
+
+- `first_meas` (created): created before Child Step 15, dropped after Child Step 16. (`p_plus`, `p_minus` and their z-scores come from `cleangrowth()` preprocessing.)
+- `sp_key` (created): created for Child Steps 15/16, dropped after Child Step 16
+- EWMA working columns and neighbor-difference columns are created inside per-group closures and not persisted to `data.df`.
+- `ewma2_caches` and `ewma2b_caches` (incremental EWMA caches): held in local environments during each iteration loop; freed (`rm()`) after their respective step completes.
+
+### Checklist findings
+
+1. **Boundaries:** All dewma thresholds are strict `>` / `<`. Gap thresholds use strict `<` vs `>=` consistently.
+2. **`.child_valid()` calls:** Child Step 15 excludes temp SDEs AND birth HT/HC. Child Step 16 excludes temp SDEs, includes only birth HT/HC subjects.
+3. **p_plus/p_minus values:** WT uses multiplicative (±5%), HT/HC uses additive (±1 cm). Consistent with clinical interpretation (5% of weight is proportional; 1 cm is the measurement precision for length).
+4. **first_meas:** Recalculated each iteration (exclusions change which row is "first").
+5. **DOP lookup:** Uses pre-computed keyed snapshot (`dop_snap`) refreshed each iteration. O(log n) lookup via `get_dop()`.
+6. **Parameter scope:** Child Step 15 handles all 3 params (birth HT/HC excluded). Child Step 16 handles HT/HC birth only (WT birth is in Child Step 15).
+7. **Factor levels:** The single `Exclude-C-Traj` code used by EWMA2 exists in `exclude.levels`.
+8. **Efficiency:** Pre-filter by `tbc.sd` range > 1 (analogous to EWMA1's > 3.5 filter but with a lower bound). Incremental EWMA caching via `ewma_cache_init()` / `ewma_cache_update()`.
+9. **No temp SDE rerun after Child Step 15/16.** Unlike Steps 7/9/11, there is no temp SDE recalculation after EWMA2. Temp SDEs were permanently resolved in Child Step 13.
+
+---
+
+## Height/HC Velocity (Child Step 17)
+
+| | |
+|---|---|
+| **Scope** | HEIGHTCM and HEADCM only (not WEIGHTKG) |
+| **Operates on** | Valid rows excluding temp SDEs, 2+ per subject-param |
+| **Prior step** | Child Steps 15/16 (EWMA2) |
+| **Next step** | Child Step 19 (Pairs and Singles) |
+| **Exclusion codes** | `Exclude-C-Abs-Diff` |
+| **Code location** | Inline in `cleanchild()` in `child_clean.R`. Uses Tanner height velocity (loaded once in `cleangrowth()` and passed in) and WHO HT / HC velocity reference tables (loaded inside `cleanchild()` from `inst/extdata/`); calls `ewma()` directly (not the cache API) for the 3+ measurement tiebreaker, `.child_valid()` for row eligibility, and `.child_exc()` for the exclusion code. |
+
+### Overview
+
+Child Step 17 checks whether the raw measurement change between consecutive observations is physiologically plausible. Unlike EWMA steps that work on z-scores, this step works on raw cm values. Height/HC should not decrease more than allowed (mindiff) or increase more than allowed (maxdiff). The allowed change depends on:
+
+- Age and gap (Tanner velocity for HT; WHO velocity for HT under 24 months of age with gaps under 9 months, and for HC under 24 months)
+- Time gap between measurements
+- Parameter (HC has tighter tolerances than HT)
+
+**Velocity references.** Height velocity limits use the Tanner and Davies (1985) standards and the WHO growth velocity standards (2009); head circumference velocity limits use the WHO standards only. How the step chooses between the two height references is described below.
+
+> Tanner JM, Davies PS. Clinical longitudinal standards for height and height velocity for North American children. *J Pediatr.* 1985 Sep;107(3):317-329. doi: [10.1016/s0022-3476(85)80501-1](https://doi.org/10.1016/s0022-3476(85)80501-1).
+>
+> World Health Organization. *WHO Child Growth Standards: Growth velocity based on weight, length and head circumference: Methods and development.* Geneva: World Health Organization; 2009. ISBN 9789241547635. [Link](https://www.who.int/publications/i/item/9789241547635)
+
+Weight is excluded because weight can legitimately decrease.
+
+### Velocity references and threshold computation
+
+**Height** uses two reference systems applied in priority order. Each pair of adjacent measurements gets a `mindiff` (minimum allowed change, typically negative = allowed decrease) and `maxdiff` (maximum allowed increase):
+
+**Tanner (midpoint age ≥ 18 months):**
+
+- `tanner.months = 6 + 12 * floor(midpoint_age_years)` where midpoint is the mean of the two agedays values. Each Tanner reference row is centered on a half-year (30 months = the 2–3 year interval, 42 = 3–4 years, …), so this picks the row whose one-year interval contains the midpoint. Midpoints from 18 months up to 2 years also use the 30-month row (the lowest entry). Below 18 months, `tanner.months` is NA, so the NA filter matches the merge key.
+- Merge with Tanner reference table → `min.ht.vel` and `max.ht.vel` (annual velocity values by sex and age)
+- **max.ht.vel floors** (gap-dependent):
+ - Always: floor at 2.54 cm (1 inch)
+ - If gap > 2 months: floor at 5.08 cm (2 inches)
+ - If gap > 6 months: floor at 10.16 cm (4 inches)
+ - If gap > 1 year: floor at 20.32 cm (8 inches)
+- **mindiff** (gap < 1 year): `0.5 * min.ht.vel * (gap_years)^2 - 3`
+- **mindiff** (gap ≥ 1 year): `0.5 * min.ht.vel - 3`
+- **maxdiff** (gap < 1 year): `2 * max.ht.vel * (gap_years)^0.33 + 5.5`
+- **maxdiff** (gap ≥ 1 year): `2 * max.ht.vel * (gap_years)^1.5 + 5.5`
+- The two pairs of formulas are continuous at gap = 1 year, so the boundary (d_agedays = 365.25) produces the same mindiff/maxdiff from either branch.
+
+**WHO (ages 0–24 months, height):**
+
+- `whoagegrp.ht = round(agedays / 30.4375)` when `agedays/30.4375 ≤ 24`; otherwise NA. Never exceeds 24. Also NA-ed out when the next measurement (this row's ageyears + gap) exceeds 24 months, so a pair crossing the WHO/CDC boundary does not extrapolate past the WHO reference. In the pre-filter this is applied directly to `whoagegrp.ht`; inside the per-group while loop the same condition zeroes out `who_mindiff_ht` / `who_maxdiff_ht` each iteration because `d_agedays` changes as rows are excluded. This 24-month range (through 730.5 days) is intentionally different from the day-730 length/height boundary used elsewhere (`vignette("wrapper")`, Phase 8, fact 2): a pair of heights ending at day 730 is still checked against the WHO increments.
+- WHO increment age groups based on gap (`d_agedays`) between adjacent measurements:
+ - gap < 46 days → 1 month
+ - 46 ≤ gap < 76 → 2 months
+ - 76 ≤ gap < 107 → 3 months
+ - 107 ≤ gap < 153 → 4 months
+ - gap ≥ 153 → 6 months
+- Merge with WHO velocity reference → `who_mindiff_ht`, `who_maxdiff_ht` at the selected increment interval
+- **Gap scaling:** If actual gap < reference interval (e.g., 45 days against a 2-month reference), scale `who_mindiff_ht` by gap / reference. If actual gap > reference interval, scale `who_maxdiff_ht` by gap / reference. The mindiff-side is scaled only when shorter than reference; the maxdiff-side is scaled only when longer. Intuition: a shorter interval allows less loss; a longer interval allows more gain.
+- **For gaps < 9 months** (WHO preferred):
+ - Transform: `mindiff = who_mindiff * 0.5 - 3`
+ - Transform: `maxdiff = who_maxdiff * 2 + 3`
+- **For gaps ≥ 9 months** (Tanner preferred, WHO fallback):
+ - Only use WHO if Tanner data unavailable (no `min.ht.vel`)
+ - WHO fallback transform: `mindiff = who_mindiff * 0.5 - 3`, `maxdiff = who_maxdiff * 2 + 3`
+- **Default** when no reference data available: `mindiff = -3` (allow up to 3 cm decrease)
+- **Birth adjustment:** none — an implausibly high birth-length value that drops to normal is caught at the same loss floor as any other pair. The gain side is unaffected in practice: at birth `maxdiff = who_maxdiff*2 + 3` is already ~26.8 cm, so no realistic gain is ever flagged.
+
+**HC** uses WHO only (no Tanner):
+
+- `whoagegrp.hc = round(agedays / 30.4375)` when `agedays/30.4375 ≤ 24`; otherwise NA. Same cap as HT.
+- WHO increment age groups: HC has no 1-month reference — the smallest interval is 2-month, so gaps shorter than 46 days (or longer than ~199 days) fall through to the fallback default below.
+ - 46 ≤ gap < 76 → 2 months
+ - 76 ≤ gap < 107 → 3 months
+ - 107 ≤ gap < 153 → 4 months
+ - 153 ≤ gap < 200 → 6 months
+- **Gap scaling:** Same proportional scaling as HT (mindiff shrinks when actual gap < reference; maxdiff grows when actual > reference).
+- **Tolerance transform:** `mindiff = who_mindiff * 0.5 - 1.5` and `maxdiff = who_maxdiff * 2 + 1.5` (tighter than HT: ±1.5 cm vs ±3 cm).
+- **Default** when HC is outside the WHO-reference range (agedays beyond ~24 months, or gap outside the 46–199-day band): `mindiff = -1.5`, `maxdiff` left at NA (no upward bound). HC measurement pairs outside the reference band therefore gate only the decrease side and effectively skip the increase-side check. This is intentional: (1) for height, the upper velocity bound catches very few values that the lower bound does not already catch; (2) an appropriate HC upper limit for ages beyond 24 months would need to be interval- and starting-age-specific and lacks an established reference; (3) large HC increases outside the reference band are already likely to be identified by EWMA steps (Child Steps 9, 11, 15, or 16) or by the subsequent measurement showing an implausibly large decrease.
+- **Birth adjustment:** none — as with HT, birth HC drops are caught at the standard loss floor.
+
+### Violation detection and resolution
+
+Child Step 17 uses a pre-filter that computes all thresholds in one vectorized pass, then only enters the per-group while loop for subject-params with at least one violation.
+
+**Violation condition:** A pair violates if: `diff_prev < mindiff_prior` (decreased too much from prior) OR `diff_next < mindiff` (next decreased too much from this) OR `diff_prev > maxdiff_prior` (increased too much from prior) OR `diff_next > maxdiff` (next increased too much from this)
+
+Where `diff_prev = v - v[prior]`, `diff_next = v[next] - v` (raw cm differences, not z-scores).
+
+**Resolution within each group:**
+
+For **3+ measurements**, EWMA-based tiebreaker:
+
+1. Compute EWMA on raw `tbc.sd` values (via `ewma()`, not the cache API — EWMA is recomputed from scratch each iteration).
+2. For each violating pair, flag which member has a worse EWMA relationship:
+ - `bef.g.aftm1`: TRUE if `|dewma.before|` exceeds the prior row's `|dewma.after|`
+ - `aft.g.aftm1`: TRUE if `|dewma.after|` exceeds the next row's `|dewma.before|`
+3. Exclude the flagged member. Among multiple candidates, select by highest `|dewma.before|` (codes 1,3) or `|dewma.after|` (codes 2,4), with `internal_id` as the tiebreaker (lowest internal_id wins).
+4. Remove excluded row, recalculate, repeat until no violations remain.
+
+For **exactly 2 measurements:**
+
+- EWMA is still computed per the shared code path above but is not consumed — the tiebreaker uses `abs(tbc.sd)` directly.
+- The abs-comparison uses `>=` (not strict `>`) so that tied `abs(tbc.sd)` pairs with a violating diff flag both rows; the `order(-absval, internal_id)` candidate selection then picks one (lowest internal_id among tied candidates).
+- Only one row is excluded per violating 2-row group.
+
+### Rationale
+
+- **Raw-cm units (not z-scores):** Height and HC velocity are bounded by physiology (children do not shrink by more than a few cm per year; growth velocity is well-characterized by age and sex). Working in raw cm uses published velocity references directly.
+- **Weight is excluded:** Weight can legitimately decrease (illness, puberty, deliberate loss), so a velocity-based plausibility check would produce too many false positives.
+- **Two references (Tanner + WHO) for height:** Tanner has age/sex-specific peak-velocity information used for pubertal growth; WHO has finer-grained month-by-month velocities for infancy. The priority rule — Tanner for gaps ≥ 9 months (when the smoothed reference is appropriate) and WHO for shorter gaps at young ages — uses each where it is most accurate.
+- **Gap-scaled tolerances (`* 0.5 - 3` / `* 2 + 5.5`):** Published velocity values are central tendencies; the tolerance formulas expand them into plausibility bands that widen with longer gaps (more cumulative variation possible).
+- **Gap-dependent `max.ht.vel` floors:** Short intervals should allow at least the measurement precision (1 inch); longer intervals should allow catch-up growth or other legitimate high velocity that brief-interval formulas would over-restrict.
+- **Tighter HC tolerances (±1.5 cm vs ±3 cm for height):** HC grows more slowly and is measured more precisely, so any large change is less likely to be plausible than the same absolute change in height.
+- **EWMA-based tiebreaker within violating pairs (3+ measurements):** When a pair violates, one of the two must be wrong but either could be. Comparing each candidate's EWMA relationship to its other neighbor identifies which end of the pair drifted from the trajectory.
+- **For exactly 2 measurements:** No EWMA context exists, so the more-extreme-z value is excluded as a coarse heuristic.
+
+### Configurable arguments in scope for Child Step 17
+
+| Parameter | Default | Where used |
+|---|---|---|
+| `ewma_window` | 15 | Max Include observations on each side for the 3+-measurement EWMA tiebreaker (`ewma()` call inside the while loop) |
+
+All velocity thresholds and tolerance formulas are hardcoded; velocity references come from `inst/extdata/` reference tables (Tanner height velocity, WHO HT velocity, WHO HC velocity).
+
+### Variables created and dropped
+
+Pre-filter columns live on `pf` (a local subset of `data.df`) and are discarded when `rm(pf)` runs at the end of the pre-filter block. Per-group closure columns (`tanner.months`, `whoagegrp.ht`, `whoagegrp.hc`, `whoinc.age.ht`, `whoinc.age.hc`, `min.ht.vel`, `max.ht.vel`, `who_mindiff_ht`, `who_maxdiff_ht`, `who_mindiff_hc`, `who_maxdiff_hc`, `mindiff`, `maxdiff`, `mindiff_prior`, `maxdiff_prior`, `diff_prev`, `diff_next`, `bef.g.aftm1`, `aft.g.aftm1`, `val_excl`, `val_excl_code`, `absval`, `d_agedays`, `ewma.all`, `ewma.before`, `ewma.after`, `dewma.all`, `dewma.before`, `dewma.after`, `exp_vals`) live on the closure-local `df` and are discarded when the closure returns — only `exclude` is written back to `data.df`. The top-level `sp_key` column is dropped explicitly after the step.
+
+### Checklist findings
+
+1. **Boundaries:** `diff < mindiff` and `diff > maxdiff` — strict inequalities. WHO interval boundaries use `>=` / `<` consistently. The Tanner and formula-side boundaries (`< 365.25` / `>= 365.25`) are continuous at gap = 1 year so the boundary assignment matches either limit.
+2. **`.child_valid()` call:** Excludes temp SDEs, excludes weight.
+3. **Sort order:** Explicit `order(agedays, internal_id)` inside each while-loop iteration; `internal_id` is the deterministic tiebreaker (same-day rows don't reach Step 17 because SDEs are resolved upstream).
+4. **Parameter scope:** HT and HC only. HC has separate velocity tables, tighter tolerances, and no Tanner.
+5. **Factor levels:** `Exclude-C-Abs-Diff` exists in `exclude.levels`.
+
+---
+
+## Pairs and Singles Evaluation (Child Step 19)
+
+| | |
+|---|---|
+| **Scope** | All parameters |
+| **Operates on** | Include rows with 1–2 remaining Include measurements per subject-param |
+| **Prior step** | Child Step 17 (Height/HC Velocity) |
+| **Next step** | Child Step 21 (Error Load) |
+| **Exclusion codes** | `Exclude-C-Pair`, `Exclude-C-Single` |
+| **Code location** | Inline in `cleanchild()` in `child_clean.R`; uses `get_dop()` for designated-other-parameter lookup, `.child_valid()` for the row eligibility mask, and `.child_exc()` for the exclusion codes. |
+
+### Overview
+
+After the prior individual-value cleaning steps, some subject-params may have only 1–2 Include measurements remaining. Child Step 19 evaluates whether these isolated values are plausible by comparing them against the designated other parameter (DOP) for the same subject.
+
+### DOP snapshot
+
+A snapshot of all Include rows (with both `tbc.sd` and `ctbc.sd`) is taken before the per-(subjid, param) closure runs. The closure writes new exclusions back to `data.df` in place, so without the snapshot the DOP lookup for the second-processed parameter would miss rows just excluded by the first — and the result would depend on by-group processing order.
+
+### Pair evaluation
+
+For 2 remaining Include measurements in the (subjid, param) group:
+
+1. Compute `diff_tbc.sd` and `diff_ctbc.sd` (z-score difference between the two) and `diff_agedays` (the time gap).
+2. Compute a per-row `comp_diff` against DOP: if a DOP Include row exists on the same ageday, use `|DOP.tbc.sd - tbc.sd|`; otherwise use `|median(DOP.tbc.sd) - tbc.sd|` over the subject's DOP Include rows. `comp_diff` is NA when the subject has no DOP Include rows.
+3. Select which of the two rows is excluded if the pair rule fires: primary criterion is larger `comp_diff`; fallback when both `comp_diff` are NA is larger `abs(tbc.sd)`. `internal_id` breaks ties — the row with the lowest `internal_id` is the one excluded.
+4. Apply exclusion:
+ - `|diff_tbc.sd| > 4 & (|diff_ctbc.sd| > 4 or NA) & diff_agedays >= 365.25` → `Exclude-C-Pair`
+ - `|diff_tbc.sd| > 2.5 & (|diff_ctbc.sd| > 2.5 or NA) & diff_agedays < 365.25` → `Exclude-C-Pair`
+5. If one row was excluded, the remaining Include row drops into the single rule below (it may itself meet the single criterion).
+
+### Single evaluation
+
+For 1 remaining Include measurement (either the original count was 1, or one of a pair was just excluded):
+
+- `(|tbc.sd| > 3 & comp_diff > 5)` OR `(|tbc.sd| > 5 & comp_diff is NA)` → `Exclude-C-Single`
+
+### Rationale
+
+- **Subject-params with 1–2 Include measurements have no trajectory** to anchor plausibility checks, so EWMA and velocity steps cannot evaluate them. Without the DOP cross-check, implausible isolated values would pass through uncontested.
+- **Pairs: threshold depends on time gap.** A |Δz| of 4 over more than a year reflects either substantial genuine change or an error — comparing against the DOP distinguishes them. Within a year, a smaller |Δz| (2.5) is already suspicious because less legitimate change is expected.
+- **Corrected z check (`|diff_ctbc.sd|`) must also agree:** A potcorr subject's uncorrected z-scores can look extreme while the corrected z-scores are normal; requiring both pipelines to show the jump prevents excluding legitimate preterm catch-up. For non-potcorr subjects `ctbc.sd` equals `tbc.sd`, so the corrected check is equivalent to the uncorrected check.
+- **Singles: two separate criteria** cover cases with and without DOP data. With DOP (`|tbc.sd| > 3 & comp_diff > 5`): the value is extreme AND disagrees with the other parameter's trajectory. Without DOP (`|tbc.sd| > 5`): only very extreme values can be excluded on their own.
+- **DOP snapshot taken before by-group processing:** Cross-parameter lookups for a subject could otherwise depend on processing order, producing subtle nondeterminism. The snapshot fixes the DOP view for this step.
+- **After excluding from a pair, re-evaluate the remaining as a single:** The remaining value may itself be implausible; the two checks compose naturally.
+
+### Configurable arguments in scope for Child Step 19
+
+None. All thresholds (pair: `> 4` / `> 2.5` with 365.25-day split; single: `> 3` with DOP, `> 5` without) are hardcoded.
+
+### Variables created and dropped
+
+`diff_tbc.sd`, `diff_ctbc.sd`, and `diff_agedays` are local scalars in the closure (pair branch only) and vanish when the closure returns. `comp_diff` is added as a column on the closure-local copy of `.SD` and is also discarded on return. Only the `exclude` column on `data.df` is updated. No columns are persisted to `data.df` for downstream steps.
+
+### Checklist findings
+
+1. **Boundaries:** Pair: `> 4` / `> 2.5` strict; gap `>= 365.25` inclusive (partitions the real line with `< 365.25`). Single: `> 3` / `> 5` strict.
+2. **`.child_valid()` call:** Excludes temp SDEs; counted Include rows drive the singles/pairs determination.
+3. **DOP snapshot:** Frozen before the per-group closure, so processing order does not affect the result.
+4. **Both `tbc.sd` and `ctbc.sd` checked** for pairs (corrected must also agree when defined). Singles use only `tbc.sd`; the `comp_diff` cross-check against DOP (which also uses `tbc.sd`) provides an implicit guard for potcorr subjects because the DOP also sits on the uncorrected scale.
+5. **Parameter scope:** All 3 params handled uniformly.
+6. **Factor levels:** Both `Exclude-C-Pair` and `Exclude-C-Single` exist in `exclude.levels.peds`.
+
+---
+
+## Error Load (Child Step 21)
+
+| | |
+|---|---|
+| **Scope** | All parameters |
+| **Operates on** | All rows (counts); modifies Include rows only |
+| **Prior step** | Child Step 19 (Pairs and Singles) |
+| **Next step** | Child Step 22 (Output) |
+| **Exclusion code** | `Exclude-C-Unevaluable-Trajectory` |
+| **Code location** | Inline in `cleanchild()` in `child_clean.R`; uses `.child_exc()` to build the exclusion code. |
+
+### Overview
+
+If a subject-param has a high ratio of excluded values (excluding SDEs, CFs, Missing, and Not-Cleaned from both numerator and denominator), all remaining Include values for that subject-param are also excluded.
+
+### Logic
+
+1. `non_error_codes`: `Exclude-C-Identical`, `Exclude-C-Extraneous`, `Exclude-C-CF`, `Exclude-Missing`, `Exclude-Not-Cleaned` — excluded from both numerator and denominator
+2. `n_errors = count of rows whose exclude is neither "Include" nor in non_error_codes`
+3. `n_includes = count of Include rows`
+4. `err_ratio = n_errors / (n_errors + n_includes)` (0 when the denominator is 0)
+5. If `err_ratio > error.load.threshold` (default 0.5) AND `n_errors >= error.load.mincount` (default 2): all Include rows within that (subjid, param) group → `Exclude-C-Unevaluable-Trajectory`
+
+`Exclude-C-Temp-Same-Day` is not in `non_error_codes`. This is intentional: by the time Child Step 21 runs, Child Step 13 has resolved every temp SDE to `Include` or to a final `Exclude-C-Identical` / `Exclude-C-Extraneous` code. Any `Exclude-C-Temp-Same-Day` row still present at Child Step 21 would be a bug and would correctly count as an error.
+
+### Rationale
+
+- **Data-quality argument:** A subject-param with a high fraction of "real" errors (PIV, Evil Twins, EWMA outliers, velocity violations, pair/single rejections) is more likely to have unreliable Includes than a subject-param whose data only needed SDE/CF housekeeping.
+- **Numerator and denominator exclude SDEs/CFs/Missing/Not-Cleaned:** Same-day duplicates, carried-forward values, missing rows, and HC measurements above the cleaning age are data-structure artifacts or out-of-scope rows, not signals of poor measurement quality — they should not contribute to the error ratio on either side.
+- **Default threshold 0.5:** Chosen to be conservative; a lower threshold would cascade exclusions too easily, a higher threshold would let in subject-params with clearly poor data. Users who want more or less permissive behavior can adjust `error.load.threshold`.
+- **`error.load.mincount` floor:** A subject-param with 1 error and 1 include has a 50% error ratio but only 2 measurements; the error ratio is not a meaningful signal at that scale. The default mincount of 2 avoids triggering on the smallest subject-params.
+
+### Configurable arguments in scope for Child Step 21
+
+| Parameter | Default | Role |
+|---|---|---|
+| `error.load.threshold` | 0.5 | Error ratio above which all remaining Include rows for a subject-param are excluded. |
+| `error.load.mincount` | 2 | Minimum number of "real" errors before the ratio is evaluated; prevents triggering on very small subject-params. |
+
+### Variables created and dropped
+
+Two working columns are added to `data.df` by the by-group `:=` assignment and dropped at the end of the step: `err_ratio` and `n_errors`. Each is constant within a (subjid, param) group. `n_includes` and `denom` are local scratch variables inside the `{}` expression and never become columns.
+
+### Checklist findings
+
+1. **Boundary:** `err_ratio > error.load.threshold` — strict `>`. An exactly 50% error rate does NOT trigger at the default threshold.
+2. **`error.load.mincount`:** Default 2. Prevents a subject-param with 1 error and 1 include (50% ratio) from triggering.
+3. **Numerator and denominator exclude SDEs/CFs/Missing/Not-Cleaned:** These are data-structure artifacts or out-of-scope rows, not cleaning errors, so they are excluded from both sides of the ratio (via `non_error_codes`).
+4. **Parameter scope:** All 3 params, grouped by `(subjid, param)`.
+5. **Factor level:** `Exclude-C-Unevaluable-Trajectory` exists in `exclude.levels`.
+
+---
+
+## Output Assembly (Child Step 22)
+
+| | |
+|---|---|
+| **Scope** | All parameters |
+| **Operates on** | All rows |
+| **Prior step** | Child Step 21 (Error Load) |
+| **Next step** | Return to `cleangrowth()` for output reassembly |
+| **Exclusion codes** | None (assembly only) |
+| **Code location** | End of `cleanchild()` in `child_clean.R` |
+
+### Overview
+
+Assembles the return value from `cleanchild()`.
+
+### Logic
+
+1. **Return columns passed to `cleangrowth()`**:
+    - Essential: `id`, `line`, `exclude`, `param`, `cf_rescued`
+    - Z-scores (if present): `sd.orig_who`, `sd.orig_cdc`, `sd.orig`, `tbc.sd`, `ctbc.sd`
+    - Optional `cf_status`, `cf_deltaz`, `cf_nextz`, `imperial`, `cf_dage_orig`, `cf_dage_next` when `cf_detail = TRUE`, and the ten `qm_elig_*` flags when `qm_detail = TRUE`
+
+`cleangrowth()` merges this with `data.batch` (original input columns) and then trims to the public output columns (`id`, `subjid`, `param`, `agedays`, `sex`, `measurement` (the verbatim submitted value; internally `v` is restored to `v_adult` before the trim), `exclude`, `bin_exclude`, `unit_error_range` (on by default), `mean_ht` (by default, when the data has adult rows), plus optional `tri_exclude`/`cf_status`/`cf_deltaz`/`cf_nextz` and the other opt-in columns catalogued in `vignette("output")`). All z-score columns, `cf_rescued`, `bin_result`, and other internal working columns are dropped at that point.
+
+### Rationale
+
+- **Z-score columns are internal:** `tbc.sd`, `ctbc.sd`, and the other z-score columns are computed and used throughout cleaning but dropped before the final return; they are exposed only when `debug = TRUE` (or, for `tbc.sd`/`ctbc.sd`/`rcmedian.sd`, `recenter_detail = TRUE`). The default output carries the cleaning result, not the intermediate z-scores.
+
+### Configurable arguments in scope for Child Step 22
+
+None. Output assembly is deterministic.
+
+### Variables created and dropped
+
+None. Child Step 22 assembles existing columns for return and creates no new ones.
+
+### Checklist findings
+
+N/A — output assembly does not exclude values.

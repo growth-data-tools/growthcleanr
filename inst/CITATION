@@ -1,0 +1,21 @@
+bibentry(bibtype = "Article",
+  title        = "Automated identification of implausible values in growth data from pediatric electronic health records",
+  author       = c(
+                  person(given = "Carrie", family = "Daymont"),
+                  person(given = c("Michelle", "E"), family = "Ross"),
+                  person(given = c("A", "Russell"), family = "Localio"),
+                  person(given = c("Alexander", "G"), family = "Fiks"),
+                  person(given = c("Richard", "C"), family = "Wasserman"),
+                  person(given = c("Robert", "W"), family = "Grundmeier")),
+  journal      = "Journal of the American Medical Informatics Association",
+  year         = "2017",
+  doi = "10.1093/jamia/ocx037",
+  volume = "24",
+  number = "6",
+  pages = "1080-1087",
+  month = "11",
+  issn = "1067-5027",
+
+  textVersion  =
+  paste("Carrie Daymont, Michelle E Ross, A Russell Localio, Alexander G Fiks, Richard C Wasserman, Robert W Grundmeier, Automated identification of implausible values in growth data from pediatric electronic health records, Journal of the American Medical Informatics Association, Volume 24, Issue 6, November 2017, Pages 1080–1087, https://doi.org/10.1093/jamia/ocx037")
+)

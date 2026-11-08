@@ -1,0 +1,30 @@
+// growthcleanr home-page brand accents (first pass; verify selectors against the built HTML)
+
+// Purple section headings on the home page
+.template-home main h2 { color: #A35ABD; }
+
+// Orange diamond bullets on the home page
+.template-home main ul { list-style: none; padding-left: 1.25rem; }
+.template-home main ul > li { position: relative; }
+.template-home main ul > li::before {
+  content: ""; position: absolute; left: -1.15rem; top: 0.6em;
+  width: 6px; height: 6px; background: #F1772F; transform: rotate(45deg);
+}
+
+// growthcleanr colored wordmark lockup as the navbar brand, on every page.
+// url() is relative to the compiled CSS (docs/deps/bootstrap-*/…); ../../ = site root.
+.navbar-brand {
+  font-size: 0;              // hide the plain "growthcleanr" text; the image shows the wordmark
+  display: inline-flex;
+  align-items: center;
+}
+.navbar-brand::before {
+  content: "";
+  display: inline-block;
+  height: 1.8rem;
+  width: 10.65rem;     // matches lockup aspect ratio (846x143)
+  background: url("../../growthcleanr-logo.png") no-repeat left center / contain;
+}
+
+// Hide pkgdown's default floated content-page logo; the navbar wordmark replaces it.
+.logo { display: none; }

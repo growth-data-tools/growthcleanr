@@ -1,0 +1,417 @@
+---
+title: "Technical reference: algorithm functions"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Technical reference: algorithm functions}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\usepackage[utf8]{inputenc}
+---
+
+
+
+This document is the reference for growthcleanr's core **algorithm functions** — the shared computations the cleaning steps rely on: the z-scores, EWMA, recentering, gestational-age correction, and the unit-error-range / CSD-z helper family. (The step-by-step algorithm logic itself lives in `vignette("child-algorithm")` and `vignette("adult-algorithm")`; the non-algorithm helper functions live in `vignette("utilities")`.) It covers every z-score computed by growthcleanr version 3, how each is calculated, which reference tables are used, and what is returned by `cleangrowth()`.
+
+growthcleanr uses **two fundamentally different z-score methods** for different purposes. Understanding the distinction is essential to avoid misinterpreting detailed output and is necessary to replicate calculations.
+
+
+---
+
+## 1. Two Z-Score Methods
+
+| Feature | CSD Method | LMS Method |
+|---------|-----------|------------|
+| **Used for** | Main cleaning algorithm (`sd.orig`, `tbc.sd`) | Extended BMI only (`ext_bmiz`); not computed by the cleaning algorithm |
+| **Formula** | `(X - M) / csd` | `((X/M)^L - 1) / (L*S)` |
+| **Effect at extremes** | Separate SDs below and above the median (csd_neg/csd_pos), linear within each side, so the upper tail is not compressed | Accounts for skewness via L; compressed z-scores at upper tail for right-skewed params (e.g., weight) |
+| **Why used for cleaning** | Large weight in a very heavy child produces a larger z-change, making implausible values easier to detect |  |
+| **Intermediate rounding** | None (removed in v3 — see §8) | None (removed in v3 — see §8) |
+
+---
+
+## 2. CSD Method — `sd.orig`
+
+The cleaning algorithm uses the **Conditional Standard Deviation (CSD)** method. This divides the difference from the median by a half-SD derived from the reference distribution, rather than the full LMS-adjusted SD. This is the same approach the CDC uses for its modified z-scores, described in:
+
+<a id="kuczmarski-2002"></a>
+> Kuczmarski RJ, Ogden CL, Guo SS, et al. 2000 CDC growth charts for the United States: Methods and development. National Center for Health Statistics. *Vital Health Stat 11*(246). 2002. [PDF](https://www.cdc.gov/nchs/data/series/sr_11/sr11_246.pdf)
+
+### Formula
+
+```
+If measurement < M:   sd.orig = (measurement - M) / csd_neg
+If measurement >= M:  sd.orig = (measurement - M) / csd_pos
+```
+
+For linear measurements, `measurement` here includes any z-score-only recumbent/standing offset (`length.adjust`, or the gestational-age window under the default); see `vignette("wrapper")`, Phase 8.
+
+Where:
+
+- `M` = age/sex-specific median from reference table
+- `csd_pos` = half the distance from M to the value at z = +2: `csd_pos = (M * (1 + 2*L*S)^(1/L) - M) / 2`
+- `csd_neg` = half the distance from M to the value at z = -2: `csd_neg = (M - M * (1 - 2*L*S)^(1/L)) / 2`
+
+The `csd_pos` and `csd_neg` values are pre-computed and stored in the reference tables as columns `csdpos` and `csdneg`.
+
+### Reference tables
+
+| Table | Source | Used for |
+|-------|--------|----------|
+| `growthfile_who.csv.gz` | [WHO 2006](https://www.who.int/tools/child-growth-standards) | HEIGHTCM/WEIGHTKG age < 5y, all HEADCM |
+| `growthfile_cdc_ext_infants.csv.gz` | [CDC 2000](https://www.cdc.gov/growthcharts/) (weight, height, head circumference); CDC 2022 extended BMI charts ([Wei et al., 2020](#wei-2020)) (BMI) | HEIGHTCM/WEIGHTKG age >= 2y |
+
+### Age blending — child algorithm (default, version 3)
+
+The child algorithm computes `sd.orig_who` and `sd.orig_cdc` separately, then blends them based on age and parameter:
+
+| Age range | Parameter | Formula |
+|-----------|-----------|---------|
+| < 2 years | any | `sd.orig = sd.orig_who` |
+| 2–5 years | HEIGHTCM, WEIGHTKG | `sd.orig = (sd.orig_cdc * (age_yr - 2) + sd.orig_who * (5 - age_yr)) / 3` |
+| > 5 years | HEIGHTCM, WEIGHTKG | `sd.orig = sd.orig_cdc` |
+| any age | HEADCM | `sd.orig = sd.orig_who` |
+
+At the boundaries (exactly 2y or 5y), the formula yields 100% WHO and 100% CDC respectively (both arms equal at the boundary).
+
+The gradual transition from WHO to CDC values is described in:
+
+<a id="daymont-2025"></a>
+> Daymont C, Hwang W, Paul IM, Shur N, Freedman DS. Creation and Evaluation of New Growth Charts With a Gradual Transition From WHO to CDC Values. *Pediatrics.* 2025 Sep 1;156(3):e2025070697. doi: [10.1542/peds.2025-070697](https://doi.org/10.1542/peds.2025-070697). PMID: 40819831.
+
+`sd.orig_who`, `sd.orig_cdc`, and the blended `sd.orig` are **not** rounded at intermediate steps in version 3 — see §8.
+
+### Age blending — `calc_and_recenter_z_scores()` (Step 15/16 plus/minus perturbation)
+
+This internal helper recomputes recentered z-scores for the `p_plus` / `p_minus` perturbed measurement values used by the Step 15/16 (moderate-EWMA / trajectory) steps. It uses the **same** blending formula, WHO/CDC tables, and age windows as the main z-score path — WHO-only `< 2y`, blend `2–5y ÷ 3`, CDC-only `> 5y` — so the perturbed z-scores are on the same footing as `tbc.sd`:
+
+| Age range | Parameter | Formula |
+|-----------|-----------|---------|
+| < 2 years | any | WHO only |
+| 2–5 years | HEIGHTCM, WEIGHTKG | `(cdc*(age-2) + who*(5-age))/3` |
+| > 5 years | HEIGHTCM, WEIGHTKG | CDC only |
+| any age | HEADCM | WHO only |
+
+---
+
+## 3. LMS Method (not used by the cleaning algorithm)
+
+The cleaning algorithm computes **no LMS z-score**. No CDC-only Box-Cox z-score (`z.orig`) is calculated or returned by `cleangrowth()`. The standard LMS formula is used only in the standalone `ext_bmiz()` extended-BMI tool (§7):
+
+```
+If L != 0:  z = ((X / M)^L - 1) / (L * S)
+If L == 0:  z = log(X / M) / S
+```
+
+If you need an age-blended LMS z-score for analysis (the conventional growth z-score, distinct from the CSD scores the algorithm uses), compute it separately — see §10.
+
+---
+
+## 4. Recentered Scores — `tbc.sd` and `ctbc.sd`
+
+The cleaning algorithm works on **recentered** z-scores so that outlier detection is age-stable: the population-median CSD z-score drifts with age, so subtracting a per-`agedays` median (computed separately for each `param` and `sex`) puts every measurement on a flatter footing before trajectory checks. By default the median comes from a fixed precomputed file (see below); it can instead be turned off (`sd.recenter = "none"`) or supplied directly by the caller.
+
+### `tbc.sd` (recentered blended CSD)
+
+```
+tbc.sd = sd.orig - rcmedian.sd
+```
+
+Where `rcmedian.sd` is the **population-median offset** looked up by `(param, sex, agedays)`. Its source is set by the `sd.recenter` argument to `cleangrowth()`:
+
+- `NA` (default) — the packaged recentering file `inst/extdata/rcfile-resmoothed.csv.gz`, built offline by smoothing per-day median SD scores from large electronic health record samples (see `vignette("recentering")` for the derivation). Not recomputed from the input at runtime.
+- `"none"` — no recentering; the recentered scores equal the reference scores (`tbc.sd = sd.orig`).
+- A caller-supplied table (columns `param`, `sex`, `agedays`, `rcmedian.sd`).
+
+Recentering exists because the population-median CSD z-score drifts with age; subtracting the per-`param`/`sex` reference median puts the cleaning thresholds on a flatter, age-stable footing. (See `vignette("wrapper")`, Phase 11, for how the join is done; see `vignette("recentering")` for how the packaged reference medians were derived.)
+
+### `ctbc.sd` (corrected recentered CSD)
+
+Same formula, but uses `sd.corr` (gestational-age-corrected z-score for preterm infants) instead of `sd.orig`:
+
+```
+ctbc.sd = sd.corr - rcmedian.sd
+```
+
+Equal to `tbc.sd` unless the subject's gestational-age correction is kept.
+
+---
+
+## 5. Gestational-Age-Corrected Scores — `sd.corr`
+
+For preterm infants, growthcleanr applies a gestational-age correction using gestational-age reference values (see `vignette("wrapper")` → "Gestational-age reference values").
+
+| Column | Description |
+|--------|-------------|
+| `sd.corr` | CSD z-score after gestational-age correction |
+
+The gestational-age correction writes a **separate** column (`sd.corr`); it does not overwrite `sd.orig` with a corrected score, so `sd.orig` remains the uncorrected reference CSD z-score. One exception: under the default, Child Step 2b rescores `sd.orig` 0.7 cm lower for height rows in the gestational-age window (`vignette("wrapper")`, Phase 8). PIV (Child Step 7) and CF rescue (Child Step 6) therefore read `sd.orig` directly as the uncorrected score. When no correction applies (term infants, older children), `sd.corr = sd.orig`.
+
+---
+
+## 6. EWMA (Exponentially Weighted Moving Average)
+
+The EWMA is the central mechanism for detecting implausible values. It is computed from **recentered CSD z-scores** (`tbc.sd`).
+
+### Weight formula
+
+```
+weight_i = (5 + |agedays_current - agedays_i|) ^ exponent
+```
+
+- Exponent: **age-gap dependent** — `-1.5` when the larger of the gaps to the adjacent measurements is `<= 1` year, decreasing linearly to `-3.5` at gaps `>= 3` years (`-1.5 - (gap_years - 1)` in between). A more negative exponent down-weights distant ages more steeply. (Used at every EWMA call site — Child Steps 11, 13, 15/16 — via `fcase(ageyears <= 1, -1.5; ageyears >= 3, -3.5; default -1.5 - (ageyears - 1))`.)
+- Measurements closer in time receive higher weight
+- Default window: 15 observations on each side of the current measurement
+
+### EWMA variants (internal — not in output)
+
+| Variable | Excludes |
+|----------|----------|
+| `ewma.all` | Only the current observation |
+| `ewma.before` | Current + immediately prior observation |
+| `ewma.after` | Current + immediately subsequent observation |
+
+The deviation from EWMA is `dewma = tbc.sd - ewma`.
+
+EWMA values are **not included in `cleangrowth()` output**. They are computed internally during each algorithm iteration and discarded.
+
+---
+
+## 7. Extended BMI Z-Scores — `ext_bmiz()`
+
+The standalone `ext_bmiz()` function computes extended BMI z-scores for children 2–19.9 years, following the CDC's extended BMI method.
+
+For children with BMI at or below the 95th percentile, the extended z-score equals the standard LMS z-score. For children above the 95th percentile, a half-normal distribution with a fitted sigma parameter is used:
+
+### Sigma formula (scale parameter)
+
+```
+Males:   sigma = 0.3728 + 0.5196 * age_yr - 0.0091 * age_yr^2
+Females: sigma = 0.8334 + 0.3712 * age_yr - 0.0011 * age_yr^2
+```
+
+Where `age_yr` = age in years (= age in months / 12).
+
+### Extended BMI percentile
+
+```
+For BMI <= 95th percentile:  ebp = 100 * pnorm(bz)        [standard LMS]
+For BMI > 95th percentile:   ebp = 90 + 10 * pnorm((BMI - p95) / sigma)
+```
+
+The extended BMI z-score is then `qnorm(ebp / 100)`. If ebp > 99.99999999999999, extended BMIz is capped at 8.21.
+
+Reference: CDC SAS macro (updated December 2022); NCHS report doi: [10.15620/cdc:121711](https://doi.org/10.15620/cdc:121711). The extended BMI method is described in:
+
+<a id="wei-2020"></a>
+> Wei R, Ogden CL, Parsons VL, Freedman DS, Hales CM. A method for calculating BMI z-scores and percentiles above the 95th percentile of the CDC growth charts. *Ann Hum Biol.* 2020 Sep;47(6):514-521. doi: [10.1080/03014460.2020.1808065](https://doi.org/10.1080/03014460.2020.1808065). PMCID: [PMC11232929](https://pmc.ncbi.nlm.nih.gov/articles/PMC11232929/).
+
+---
+
+## 8. Rounding
+
+**Intermediate z-score rounding has been removed in version 3.** `sd.orig_who`, `sd.orig_cdc`, the blended `sd.orig`, `tbc.sd`, and `ctbc.sd` are all carried at full numeric precision throughout the cleaning pipeline. The previous Stata-style rounding to 0.001 (half away from zero) existed only for cross-platform Stata-vs-R validation and has been removed along with the `round_stata()` helper; it was never needed by the algorithm itself. Downstream consumers can round the returned columns to whatever precision they like.
+
+---
+
+## 9. Columns Returned by `cleangrowth()`
+
+The full return-value contract — which columns are always returned, which are gated behind options (`debug`, `cf_detail`, `corr_detail`, etc.), and what each can contain — is documented in **`vignette("output")`** (the single source of truth).
+
+The z-scores described in this document (`sd.orig`, `tbc.sd`, `sd.corr`, `ctbc.sd`, and the plus/minus perturbation variants) are **not** in the default output; they are returned only under `debug = TRUE` (or `full_detail = TRUE`), and on child rows only. See `vignette("output")` §7.
+
+---
+
+## 10. Key Distinctions for Downstream Use
+
+### `sd.orig` vs a standard LMS z-score
+
+`sd.orig` uses CSD, which is **not** the conventional z-score for growth research. It is intentionally linear in the measurement (no compression of the upper tail), which makes the algorithm more sensitive to implausibly high values. Do not use `sd.orig` or `tbc.sd` as population-referenced z-scores in analyses; compute LMS z-scores separately.
+
+### Computing a blended LMS z-score for analysis
+
+growthcleanr does not produce an LMS z-score. If you need the conventional age-blended LMS z-score for analysis, apply the LMS formula yourself using the same WHO/CDC blend the cleaning algorithm uses for its CSD scores (WHO-only < 2y, weighted blend 2–5y ÷ 3, CDC-only > 5y). Standard research practice blends WHO (younger children) and CDC (older children) this way rather than using a CDC-only reference.
+
+### EWMA output
+
+EWMA/DEWMA values are computed internally and **not returned**. If you need DEWMA for quality measures, compute it independently using your preferred z-score input (typically blended LMS z-scores).
+
+---
+
+## 11. Reference Table Summary
+
+| File | Location | Content |
+|------|----------|---------|
+| `growthfile_who.csv.gz` | `inst/extdata/` | WHO 2006 L/M/S + `csdpos`/`csdneg` |
+| `growthfile_cdc_ext_infants.csv.gz` | `inst/extdata/` | CDC 2000 (weight, height, head circumference) and CDC 2022 extended BMI L/M/S + csd columns |
+| `CDCref_d.csv.gz` | `inst/extdata/` | CDC reference for `ext_bmiz()` |
+| `who_hc_vel_3sd_infants.csv.gz` | `inst/extdata/` | WHO HC velocity thresholds (infant table; only ≤ 24 mo is used — see the velocity step in `vignette("child-algorithm")`) |
+| `who_hc_maxvel_3sd_infants.csv.gz` | `inst/extdata/` | WHO HC max velocity thresholds (infant table; only ≤ 24 mo is used) |
+| Fenton tables | `inst/extdata/` | Approximated Fenton CSD values and approximated Fenton median weights by gestational age, for gestational-age correction of preterm infants (see `vignette("wrapper")` → "Gestational-age reference values") |
+
+---
+
+## Unit-Error-Range and CSD-z Helper Reference (child + adult)
+
+
+Single shared reference for the **unit-error-range** helper family and the small **adult CSD-z** reference it depends on. These helpers span both algorithms: the child algorithm and the adult algorithm each compute an informational `unit_error_range` output column through the **same** band-logic helper (`.unit_error_range_flag()`), and the adult algorithm additionally uses its CSD-z helpers inside Evil Twins (Adult Step 9Wa) for the UER3 unit-error split and the median-band |z| tiebreak. Because the family is cross-algorithm, it is documented here rather than duplicated in the child and adult narratives; both narratives' Support Functions sections point here.
+
+
+
+This document describes what the current R code does. It is a debugging aid and a long-term technical reference. References to code use function names rather than line numbers, because line numbers go stale with each edit.
+
+---
+
+## What `unit_error_range` is
+
+`unit_error_range` is a **default-ON, informational** logical output column (parameter `unit_error_range = TRUE`; see `vignette("configuration")` and `vignette("output")`). It **never affects `exclude`** and is **not** a member of `exclude.levels`. For each row it answers a single question:
+
+> Is this measurement's magnitude consistent with a **metric/imperial unit-conversion error** (the value was recorded in the wrong unit system), AND is it **outside the plausible z = −3 to +3 band**?
+
+`TRUE` flags values that look like they could be a unit error and are not already within the plausible range. It is purely a magnitude/range test — it does **not** check the rest of the trajectory, and it makes no exclusion decision. It is set to `FALSE` (not evaluated) for rows with the internal codes `Exclude-Missing`, `Exclude-Not-Cleaned`, and `Exclude-Not-GC-Param` (internal names; for the reported codes, see `vignette("exclusion-codes")`) and for rows with missing age (see the `.compute_unit_error_range()` dispatch below).
+
+The same flag is also computed **internally** during cleaning — in child Evil Twins (Child Step 9) and adult Evil Twins (Adult Step 9Wa) — as one input to the UER3 unit-error-split selection logic. The output column and the internal use share one helper.
+
+`cleangrowth()` also uses this flag for a **systematic-unit-error warning**: when more than 20% of a parameter group's cleaned (evaluated) values are flagged `TRUE`, it emits a soft `warning()` that the whole column may be in the wrong unit (e.g. weight recorded in pounds but labeled `WEIGHTKG`). The warning also notes that a high share may instead reflect people with atypical growth (for example, extremely premature infants, severe obesity, some medical conditions), whose real values can fall in the unit-error range. The share is computed per parameter group (weight / height / head circumference) over the same evaluated rows the flag applies to. It is advisory only — no minimum sample size and no effect on `exclude`.
+
+### File locations (why the family is split across two files)
+
+| Helper | File | Why there |
+|---|---|---|
+| `.unit_error_range_flag()` (shared band logic) | `adult_support.R` | Co-located with adult Evil Twins, which consumes it; the child side reaches it via the package namespace. |
+| `.adult_csd_ref()`, `.adult_csd_lookup()`, `.adult_z3()`, `.adult_csd_z()` | `adult_support.R` | Adult-only CSD reference; also needed by the standalone adult test harness, which sources only the adult files. |
+| `.child_z3()` (child zn3/zp3 lookup) | `child_clean.R` | Child reference-table lookup. |
+| `.compute_unit_error_range()` (child + adult output assembler) | `child_clean.R` | Runs at `cleangrowth()` output assembly over the full (child + adult) result. |
+
+The header comments at `adult_support.R` (above `.adult_csd_ref()`) and `child_clean.R` (above `.child_z3()`) both state this split explicitly.
+
+---
+
+## The shared band logic: `.unit_error_range_flag(param, value, zn3, zp3)`
+
+**Purpose.** Direction-agnostic unit-error-range test. Given each row's `param`, its **metric** measurement `value`, and the plausible-band endpoints `zn3`/`zp3` (the measurements at recentered z = −3 and z = +3 for that row's reference), it builds the two unit-error bands and the plausible carve-out and returns a logical vector.
+
+**The two unit-error bands.** A value is "unit-error-shaped" if, had it actually been recorded in the *other* unit system, it would have landed in the plausible band. Two directions:
+
+- **`range_im`** — measured imperial, recorded metric (the imperial number was dropped into a metric field).
+- **`range_mi`** — measured metric, recorded imperial.
+
+The band endpoints are the plausible endpoints scaled by the conversion factor for the param:
+
+- Weight (`WEIGHTKG`): factor `LB_PER_KG = 2.2046226218`. A lb number sitting in a kg field **inflates**; `range_im` endpoints are `zn3 * LB_PER_KG`, `zp3 * LB_PER_KG`; `range_mi` endpoints are `zn3 / LB_PER_KG`, `zp3 / LB_PER_KG`.
+- Height/HC (everything not `WEIGHTKG`): factor `CM_PER_IN = 2.54`. An inch number in a cm field **deflates**; `range_im` endpoints are `zn3 / CM_PER_IN`, `zp3 / CM_PER_IN`; `range_mi` endpoints are `zn3 * CM_PER_IN`, `zp3 * CM_PER_IN`.
+
+Both unit-error bands are **exclusive** (`value > pmin(...) & value < pmax(...)`, using `pmin`/`pmax` so the band orients correctly regardless of endpoint order).
+
+**The plausible carve-out `range_3`.** The **inclusive** interval `value >= zn3 & value <= zp3`. A value already inside the plausible band is never flagged, even if it also happens to fall in a unit-error band.
+
+**Return.** `TRUE` iff `(in range_im OR in range_mi) AND NOT in range_3`. **NA endpoints** (no reference lookup matched, e.g. HEADCM out of cleaning range) → `FALSE` (`res[is.na(res)] <- FALSE`).
+
+**Callers.** Child Step 9 Evil Twins (builds the internal `uer` column), the child+adult output assembler `.compute_unit_error_range()`, and adult Evil Twins (`evil_twins()` in `adult_support.R`, as `sp_uer`).
+
+---
+
+## Child side
+
+### `.child_z3(param, sex, agedays, ref.data.path = "")`
+
+**Purpose.** The child interface that the `.unit_error_range_flag()` band plugs into: returns, per row, the **recentered (uncorrected)** z = −3 / z = +3 measurements (`zn3`, `zp3`) for child rows. These are looked up — not computed at runtime — from the reference table `inst/extdata/child_z3_reference.csv.gz`, keyed by `(param, sex, agedays)`.
+
+**Inputs/return.** Equal-length `param` / `sex` / `agedays` vectors; output preserves input row order (a `.ord` sequence is merged through and re-sorted). Returns `list(zn3, zp3)`. `ref.data.path = ""` reads the installed package copy via `system.file()`; a non-empty path reads `child_z3_reference.csv.gz` from there (for testing / non-installed use).
+
+**Returns NA** where no lookup row matches — notably HEADCM beyond the 5-year HC cleaning range (the table has no rows there), which then yields `FALSE` from the flag.
+
+**Code location.** `child_clean.R`, function `.child_z3()`.
+
+### `.compute_unit_error_range(dt, adult_cutpoint, ref.data.path = "")`
+
+**Purpose.** Assembles the public `unit_error_range` column over the **full** result (child + adult rows together), at `cleangrowth()` output assembly. Dispatches the zn3/zp3 lookup by row type, then calls the shared `.unit_error_range_flag()`.
+
+**Dispatch.**
+
+- Non-evaluable rows → `zn3`/`zp3` stay `NA` (→ `FALSE`). Non-evaluable = `exclude` in `{Exclude-Missing, Exclude-Not-Cleaned, Exclude-Not-GC-Param, Exclude-Missing-Info, Exclude-HC-Out-of-Range}` (both the internal literals **and** their Summary-level equivalents, because partial-run cached rows arrive already remapped), or `is.na(agedays)`.
+- **Adult rows** (`agedays >= adult_cutpoint * 365.25`) → `.adult_z3(param, sex)`.
+- **Child rows** (evaluable, below the cutpoint) → `.child_z3(param, sex, agedays, ref.data.path)`.
+
+**Inputs.** `dt` must carry `param`, `sex`, `agedays`, `v` (the metric measurement), and `exclude`. Returns the logical vector for the whole table.
+
+**Caller.** `cleangrowth()` output assembly, `all_results[, unit_error_range := .compute_unit_error_range(...)]`, gated on the `unit_error_range` parameter.
+
+**Code location.** `child_clean.R`, function `.compute_unit_error_range()`.
+
+---
+
+## Adult side
+
+The adult algorithm computes no recentered z-scores. For both the unit-error band endpoints and the Evil Twins CSD work it uses a **small fixed sex-specific NHANES reference** with two-sided conditional SDs.
+
+### `.adult_csd_ref()`
+
+**Purpose.** The single named source of the adult CSD constants — sex-specific median `M` and below-/above-median SDs (`SD_neg`, `SD_pos`) for adult `HEIGHTCM` and `WEIGHTKG`. Kept as one object so the constants are never re-entered inline in a z-score function.
+
+**Provenance.** Constants are from **[NHANES](https://www.cdc.gov/nchs/nhanes/) 2017–2020 + 2021–2023** (unweighted, ages 18+). The hard-coded values are:
+
+| param | sex | M | SD_neg | SD_pos |
+|---|---|---|---|---|
+| HEIGHTCM | 1 (F) | 160.3 | 7.1 | 7.1 |
+| HEIGHTCM | 0 (M) | 174.1 | 7.8657 | 7.7 |
+| WEIGHTKG | 1 (F) | 74.0 | 13.75 | 29.9 |
+| WEIGHTKG | 0 (M) | 85.2 | 14.65 | 29.6 |
+
+No HC (adults have none). `sex`: 0 = male, 1 = female.
+
+**sex = NA fallback.** A `sex = NA` row is appended **per param** as the simple mean of the male and female constants, so adults whose sex is missing/unrecognized (coerced to NA at input) get a sensible reference instead of NA z-scores. This is a **derived fallback computed at runtime, not** a re-derived pooled-sex NHANES distribution — the M/F constants in the table above are the values of record. Computed in code (not hard-coded) so it stays in sync if the empirical M/F constants ever change.
+
+**Code location.** `adult_support.R`, function `.adult_csd_ref()`.
+
+### `.adult_csd_lookup(param, sex)`
+
+**Purpose.** Look up `(M, SD_neg, SD_pos)` per `(param, sex)`. NA-safe: `sex = NA` resolves to the averaged fallback row. Uses a `-1` integer sentinel for NA sex in **both** the query and the reference (`.sexkey`) so the merge does not depend on NA-matching join semantics. Returns `NA` for params not in the adult reference (e.g. HEADCM). Equal-length vector inputs; output preserves input order (via a `.ord` re-sort).
+
+**Code location.** `adult_support.R`, function `.adult_csd_lookup()`.
+
+### `.adult_z3(param, sex)`
+
+**Purpose.** Adult band endpoints: `zn3 = M − 3·SD_neg`, `zp3 = M + 3·SD_pos`. NA-safe via `.adult_csd_lookup()`; `NA` for params not in the reference. This is the adult analogue of `.child_z3()` — it is what `.compute_unit_error_range()` calls for adult rows. Returns `list(zn3, zp3)`.
+
+**Code location.** `adult_support.R`, function `.adult_z3()`.
+
+### `.adult_csd_z(param, sex, value)`
+
+**Purpose.** Per-value two-sided conditional-SD z: `z = (value − M) / SD_neg` if `value < M`, else `(value − M) / SD_pos`. NA-safe via `.adult_csd_lookup()`; `NA` for params not in the reference. **Used only inside adult Evil Twins** — for the UER3 plausible-group test (which group has `|z| < 3`) and the median-band `|z|` tiebreak. It does **not** feed the `unit_error_range` output column (that path uses `.adult_z3()` endpoints + `.unit_error_range_flag()`, not a per-value z).
+
+**Callers.** `evil_twins()` in `adult_support.R`.
+
+**Code location.** `adult_support.R`, function `.adult_csd_z()`.
+
+---
+
+## How the pieces fit
+
+```
+unit_error_range OUTPUT column (default ON):
+  .compute_unit_error_range(dt, adult_cutpoint)         [child_clean.R]
+      ├── child rows → .child_z3()  → zn3/zp3 from child_z3_reference.csv.gz
+      ├── adult rows → .adult_z3()  → zn3/zp3 = M ± 3·SD   [adult_support.R]
+      └── .unit_error_range_flag(param, v, zn3, zp3)       [adult_support.R]
+
+INTERNAL use during cleaning (one input to the unit-error split):
+  child Step 9 Evil Twins:  .child_z3() + .unit_error_range_flag()  → uer
+  adult Step 9Wa Evil Twins: .adult_z3() + .unit_error_range_flag() → sp_uer
+                             .adult_csd_z() → UER3 group split + |z| tiebreak
+```
+
+**Two distinct uses of the adult CSD reference.** The band endpoints (`.adult_z3()`) feed both the output column and the adult ET unit-error band; the per-value z (`.adult_csd_z()`) is ET-internal only. Both draw their constants from the single `.adult_csd_ref()` object.
+
+---
+
+## Related: `.compute_corrected_z()` (GA-correction engine)
+
+`.compute_corrected_z()` is **not** a unit-error helper — it is the Child Step 2b gestational-age corrected-z engine — but it is the other child CSD-z helper, so it is cross-referenced here. Its Support-Functions entry lives in **`vignette("child-algorithm")` → Support Functions**. In brief: it encapsulates the corrected-z chain (uncorrected WHO/CDC blend at chronological age, gestational-age reference CSD z at corrected age, corrected WHO/CDC z at `cagedays`, the 0.7 cm standing/recumbent offset (`.gc_len_offset`, shared with `length.adjust`) when `agedays >= 730` and `cagedays < 730` (see `vignette("wrapper")`, Phase 8, fact 6), the GA-reference-preferred rule ≤2y, and the final ≤2 / 2–4 blend / else fcase) so the **same** correction is applied to the actual measurement and to the ±5%-wt / ±1 cm plus/minus perturbations. Callers: `cleangrowth()` Step 2b preprocessing.
+
+---
+
+## Notes for maintainers
+
+- **Verify after any reference-data change.** If the NHANES source values or `inst/extdata/child_z3_reference.csv.gz` are regenerated, confirm the `.adult_csd_ref()` hard-coded values still match them, and re-run the unit-error-range tests (`tests/testthat/test-child-unit-error-range.R`, which unit-tests `.unit_error_range_flag()` and `.compute_unit_error_range()` directly).
+- **Magic numbers.** `LB_PER_KG = 2.2046226218` and `CM_PER_IN = 2.54` are the only conversion constants; the `±3` band width is fixed (the "plausible" range definition).
+- **Single source of truth for the public column contract** is `vignette("output")`; for the parameter, `vignette("configuration")`. This file documents the *helpers*, not the column's place in the return contract.

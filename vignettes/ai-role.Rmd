@@ -1,0 +1,56 @@
+---
+title: "Use of AI assistance in growthcleanr development"
+author: "Carrie Daymont"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Use of AI assistance in growthcleanr development}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\usepackage[utf8]{inputenc}
+---
+
+## Summary
+
+The growthcleanr algorithm has been in development since 2010. Publicly released software has been available since 2017, and it has been available on CRAN since 2022. Algorithm and software development has been led by me (Carrie Daymont) with many crucial contributions from collaborators. Since November 2025, I have used generative AI (specifically Claude large language models (LLMs) by Anthropic) to improve growthcleanr software. Below I describe in more detail how AI was used so that users can judge for themselves how it bears on their own use of the package. I take responsibility for the algorithm, software, and documentation. However, the algorithm is long and complex, and I anticipate that there will be bugs and errors in documentation, as there have been with all releases prior to use of LLMs.
+
+## Generative vs predictive AI
+
+Note that this document is about the use of generative AI to improve growthcleanr. The growthcleanr algorithm does not involve any predictive AI. If desired, one could implement the algorithm logic with a scientific calculator, the reference datasets, and a lot of scratch paper. However, it would take hours to evaluate a single patient with many measurements.
+
+## Data security
+
+I test real-world data independently. Claude has had access to (and sometimes created) synthetic data. Less commonly, Claude used values based on deidentified data that were adjusted as an extra guard against identification (e.g., an amount unspecified to Claude added to all weight values and several days subtracted from all ages).
+
+## Concepts
+
+The document discusses three important related concepts:
+
+1) The algorithm specifications are the rules that define what the algorithm should do. I refer to the specifications below as the algorithm logic. For example, a key component of the logic is how implausible values are identified. What specific calculations and comparisons are made and in what order? What thresholds define implausibility in which circumstances?
+
+2) The implementation is the translation of that logic into code. The logic defines which calculations and comparisons are made and in what order. The implementation involves writing R code that performs those calculations and comparisons in the data, with attention to doing so efficiently for large datasets.
+
+3) The software is the package available to users that contains the code, as well as accompanying datasets, documentation, tests, and other related files.
+
+## Development and authorship of the logic
+
+I have designed and/or approved all aspects of the logic, with contributions along the way from collaborators. The logic is grounded in clinical knowledge of typical and atypical growth, of how measurements are taken, and in the frequency of growth patterns in studied datasets. Much of the logic was developed before current LLMs existed. AI has been primarily involved in algorithm implementation and software development, but it has also provided some comments or suggestions for improving the logic, some of which were ultimately incorporated into the current logic. Specifically, AI provided a large amount of assistance choosing specific methods for smoothing the data for recentering medians, with my direction regarding choice of data and the degree of smoothing at specific ages.
+
+## Implementation
+
+Until February 2026, I implemented growthcleanr logic in Stata. Multiple people over the years have contributed to converting it to R and maintaining the R version. I never had time to develop the R skills to implement the complex logic in R, and certainly not to debug it well or optimize efficiency. In November 2025, I started working with Claude to reconcile the Stata and R versions, which surfaced multiple bugs and opportunities for improvement. In February 2026, I deprecated the Stata version. Since then, Claude has implemented logic changes in the R code with my close supervision. Claude has also suggested and implemented multiple improvements in efficiency, which have cut runtime by more than half for many datasets. Modifying growthcleanr has proven incredibly time consuming, even for skilled programmers who are experienced in working with growth data. Many of the improvements to growthcleanr in this release would not be possible without the use of LLMs.
+
+## Testing
+
+growthcleanr testing previously involved a relatively small number of test patients with expected correct values. I began designing test patients with expected correct behavior for Claude to run after every significant code change. Some of these tested logic (informed by real data and literature), others implementation. After working this way for several months, Claude developed more testing on its own, with my review of correct behavior. This testing is combined with my independent testing on real-world data in a different environment.
+
+## Code review
+
+I did not review most of this code in detail. My knowledge of R is not strong enough for line-by-line review to be a meaningful check. Confidence that the code does what the logic specifies comes instead from careful specification and testing the code's behavior against the rules I set using a variety of datasets. Claude ran many of these tests using synthetic data for my review, but I also separately tested the algorithm in deidentified real-world data. A reasonable concern about large language models is that they can produce code, or text, that looks correct but is not. I cannot eliminate this risk but have mitigated it using independent logic development (mine), extensive testing against specified behavior, review of the documentation by myself or collaborators, and multiple reconciliations of logic specifications, code, tests, and documentation. 
+
+## Documentation
+
+Claude drafted a large portion of the package documentation, and I supervised numerous rounds of edits, reconciling the logic, code, inline comments, and other documentation. Notable exceptions include the how-to guides, the fact sheet, and the researcher overview on GitHub pages, which were developed by contributors and reviewed by me. The documentation is extensive. I have spot-checked but not directly reviewed inline comments in the code. The vignettes and other public documentation have been reviewed in detail by myself or a collaborator close to the time of release, although some edits have been made since those full reviews as minor code modifications were made.
+
+## Responsibility, transparency, and limitations
+
+I take responsibility for the released code and documentation. As mentioned, as with prior releases, I expect there will be some software bugs and documentation errors. I welcome bug reports, questions, and suggestions through the project's issue tracker and will address them as quickly as possible. The logic and all code are public. Some tests are not public because of CRAN package size limitations; these tests are available on request.

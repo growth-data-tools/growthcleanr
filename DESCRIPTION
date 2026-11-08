@@ -1,0 +1,78 @@
+Package: growthcleanr
+Title: Data Cleaner for Anthropometric Measurements
+Version: 3.0.0
+Authors@R: c(
+    person("Carrie", "Daymont", email = "cdaymont@pennstatehealth.psu.edu", role = c("cre", "aut", "cph")),
+    person("Robert W", "Grundmeier", role = "aut"),
+    person("Jeffrey", "Miller", role = "aut"),
+    person("Diego", "Campos", role = "aut"),
+    person("Dan", "Chudnov", role = "aut"),
+    person("Hannah", "De los Santos", role = "aut"),
+    person("David", "Freedman", role = "aut"),
+    person("Wen", "Hu", role = "aut"),
+    person("Chris", "Penney", role = "aut"),
+    person("Jesse", "Anderson", role = "ctb"),
+    person("Matt", "Boyas", role = "ctb"),
+    person("Lusha", "Cao", role = "ctb"),
+    person("Sara", "Couture", role = "ctb"),
+    person("Prashila", "Dullabh", role = "ctb"),
+    person("Jess", "Fernandez", role = "ctb"),
+    person("Andrew", "Gregorowicz", role = "ctb"),
+    person("Lyudmila", "Kompaniyets", role = "ctb"),
+    person("A Russell", "Localio", role = "ctb"),
+    person("Ruth", "Nwefo", role = "ctb"),
+    person("Max", "Olivier", role = "ctb"),
+    person("Samantha", "Pierce", role = "ctb"),
+    person("Michelle E", "Ross", role = "ctb"),
+    person("Steffani", "Silva", role = "ctb"),
+    person("Mithuna", "Srinivasan", role = "ctb"),
+    person("Marissa", "Sucosky", role = "ctb"),
+    person("Jennifer", "Wiltz", role = "ctb"),
+    person("Hanzhe", "Zhang", role = "ctb"),
+    person("Alexander G", "Fiks", role = "sad"),
+    person("Richard C (Mort)", "Wasserman", role = "sad"),
+    person("Andreas", "Achilleos", role = "sad"),
+    person("Nabeel", "Akhtar", role = "sad"),
+    person("Sarah", "Akhtar", role = "sad"),
+    person("Wilbert", "Beachy", role = "sad"),
+    person("Colin", "Bridgeman", role = "sad"),
+    person("Jessica", "Butts", role = "sad"),
+    person("Emily", "Despeaux", role = "sad"),
+    person("Christine", "Irvin", role = "sad"),
+    person("Madiha", "Jamil", role = "sad"),
+    person("Robert", "Marquis", role = "sad"),
+    person("Abigail", "Nelson", role = "sad"),
+    person("Sheila", "Nguyen", role = "sad"),
+    person("Taraneh", "Soleymani", role = "sad"),
+    person("Ronald", "Williams", role = "sad")
+  )
+Description: Flags implausible anthropometric (weight, height, and head circumference) measurements in longitudinal pediatric and adult datasets, such as those from electronic health records. Identifies other measurements that should often be excluded from analyses. The main function is cleangrowth(). Implements a modified version of the algorithm described in Daymont et al. (2017) <doi:10.1093/jamia/ocx037>.
+URL: https://growthcleanr.org/, https://github.com/growth-data-tools/growthcleanr
+BugReports: https://github.com/growth-data-tools/growthcleanr/issues
+Imports:
+    R.utils (>= 2.11.0),
+    data.table (>= 1.13.0),
+    foreach (>= 1.5.0),
+    doParallel (>= 1.0.15),
+    lubridate (>= 1.7.0),
+    parallel,
+    stats,
+    utils,
+    shiny,
+    DT,
+    shinyjs,
+    shinyFiles
+Depends:
+    R (>= 3.5.0)
+License: MIT + file LICENSE
+Encoding: UTF-8
+Language: en-US
+LazyData: true
+Roxygen: list(markdown = TRUE)
+Suggests:
+    argparser (>= 0.6),
+    knitr (>= 1.29),
+    rmarkdown (>= 2.3),
+    testthat (>= 2.3.2)
+VignetteBuilder: knitr
+RoxygenNote: 7.3.3

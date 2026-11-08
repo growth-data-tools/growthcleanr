@@ -1,0 +1,472 @@
+---
+title: "Example scripts"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Example scripts}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\usepackage[utf8]{inputenc}
+---
+
+These are complete scripts you can copy, paste, and run. Each box below is one scenario -- click it to open the script, copy it, and change the parts marked for your own data.
+
+New to growthcleanr? See `vignette("new-start-here")` first for what it does and the data it expects.
+
+**How to use these scripts**
+
+- Every setting is already filled in with growthcleanr's default value, except where noted, so a script runs as written on standard data.
+- To change a setting, edit the value on that line.
+- If a whole box or a line does not apply to you, just delete it. growthcleanr uses its default whenever a setting is absent.
+- These scripts use features added in growthcleanr version 3. Install the current version with `install.packages("growthcleanr")`.
+
+**Prefer not to write R code?** We recommend using the Shiny app, but growthcleanr includes a ready-made script, `gc_template.R`, that reads a CSV, cleans it, and writes a results CSV. You edit two file names and run it from a command line; instructions are at the top of the file. To find it, run `system.file("scripts", "gc_template.R", package = "growthcleanr")` in R, or see `vignette("command-line")` for the command-line driver.
+
+**Check your setup before you clean.** The settings most likely to be wrong are your **sex coding** and your **measurement-type labels**. Checking takes one line -- see *Check your setup first*, just below.
+
+**Working with a lot of data?** Speed matters, and growthcleanr has two options that help a great deal on large datasets: running on several CPU cores at once (`parallel`), and checkpointing, which cleans large datasets in pieces so the run stays fast and does not run out of memory. Checkpointing is on automatically; turn on `parallel` before a big run, and name a `checkpoint_dir` if you want to be able to resume -- see the *Large datasets* box below and `vignette("large-datasets")` for full guidance.
+
+# Before you start: the standard input
+
+The scripts on this page use **long format**: one row per measurement, with these columns.
+
+- `subjid` -- subject identifier (one person)
+- `param` -- which measurement: `WEIGHTKG`, `HEIGHTCM`, or `HEADCM` (imperial `WEIGHTLBS`, `HEIGHTIN`, `HEADIN`, and recumbent `LENGTHCM`/`LENGTHIN` are also accepted)
+- `agedays` -- age in days at the measurement (or supply dates instead; see the dates box below)
+- `sex` -- `0` for male, `1` for female by default
+- `measurement` -- the recorded value, in kg or cm (or imperial, per `param`)
+- `id` -- optional, one identifier per **row** (not per person); growthcleanr creates one for you if you have none
+
+If your columns are named differently, your sex is coded differently, or your measurement labels differ, the boxes below show how to tell growthcleanr -- you do not have to rename anything in your data first.
+
+growthcleanr also reads **semi-wide** (one row per visit) and **wide** (one row per subject) layouts; see the *Semi-wide data* and *Wide data* boxes below, where the column-name, sex-coding, and date options apply too.
+
+# Check your setup first
+
+Before cleaning your whole dataset, confirm that growthcleanr is reading it the way you intend -- especially your **sex coding** and your **measurement-type labels**, the two settings most likely to be wrong.
+
+You do not need a separate script for this. Take any script below, change `cleangrowth` to `gc_runtrial`, and run it: growthcleanr cleans a small sample of your patients (100 by default) using the exact settings in that script and prints a short report -- **without saving anything**. When the report looks right, change `gc_runtrial` back to `cleangrowth` and run for real.
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")
+
+# The same call you plan to run, with cleangrowth changed to gc_runtrial.
+# Add your real settings here (column names, sex_coding, labels, dates),
+# exactly as in the boxes below.
+gc_runtrial(df)
+```
+
+**What the report shows**
+
+- **Sample** -- how many patients were sampled (add `seed = 1` for the same sample each time).
+- **How your input was read** -- the input format, which columns were used, and the age source.
+- **Sex** -- which of your codes were read as male and female, and any values it did not recognize.
+- **Parameters** -- which of your labels were read as weight, height, and head circumference, and any it did not recognize.
+- **Flagged while reading** -- anything growthcleanr warned about as it read your data.
+- **Cleaning result** -- a count of each exclusion code in the sample.
+
+If a setting would make growthcleanr stop (for example a sex coding it will not guess), the trial reports that as the headline finding and still shows the sex and parameter mapping, so you can see what to fix.
+
+# Scripts
+
+<details>
+<summary><strong>The simplest run (all defaults)</strong></summary>
+
+Use this when your data already uses the standard column names and codings described above.
+
+```r
+install.packages("growthcleanr")   # first time only
+library(growthcleanr)
+library(data.table)
+
+df <- fread("my_growth_data.csv")  # your file
+cleaned <- cleangrowth(df)   # to check first, change "cleangrowth" to "gc_runtrial"
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+</details>
+
+<details>
+<summary><strong>The full template (all common options in one place)</strong></summary>
+
+Every common setting, shown at its default except where noted. Edit the values you need and delete the lines or sections you do not.
+
+```r
+# ============================================================================
+#  growthcleanr -- cleaning template (LONG data format)
+#
+#  HOW TO USE THIS SCRIPT
+#  - Every setting below is filled in with growthcleanr's DEFAULT, except
+#    where noted, so the script runs as-is on standard data.
+#  - To change a setting, edit the value on that line.
+#  - If a whole SECTION does not apply to you, DELETE those lines. Deleting is
+#    always safe: growthcleanr falls back to its default when a setting is gone.
+# ============================================================================
+
+install.packages("growthcleanr")             # first time only
+library(growthcleanr)
+library(data.table)
+
+df <- fread("my_growth_data.csv")             # your file name
+
+cleaned <- cleangrowth(   # to check your setup first, change "cleangrowth" to "gc_runtrial"
+  df,
+
+  # ==========================================================================
+  #  PERFORMANCE  -- worth setting before a large run (see the
+  #  "Large datasets" article for full guidance)
+  # ==========================================================================
+
+  # PARALLEL: use several CPU cores at once. FALSE (default) uses one core.
+  # For more than a few thousand subjects, set this to TRUE.
+  parallel = FALSE,          # change to TRUE to speed up large datasets
+  cores    = NULL,           # NULL auto-detects (up to 8); or set a number like 4
+
+  # CHECKPOINTING: clean large data in pieces so the run stays fast and within
+  # memory; name a folder to also make the run resumable if it is interrupted.
+  # Leave NULL: checkpointing is automatic for more than 5,000 subjects
+  # (temporary files, deleted after). Name a folder only to keep the files
+  # for resuming.
+  checkpoint_dir    = NULL,  # e.g. "gc_checkpoints" 
+                             # if the folder does not exist, growthcleanr will make it
+                             # existing checkpoint files in this folder are deleted at the start, unless checkpoint_resume = TRUE
+  checkpoint_resume = FALSE, # set TRUE to resume that folder after a crash
+
+  # ==========================================================================
+  #  COLUMN NAMES  -- left = what growthcleanr expects, right = YOUR column name
+  # ==========================================================================
+  subjid      = "subjid",       # subject id (one person)
+  id          = "id",           # optional per-ROW id; delete this line if you have none
+  param       = "param",        # which measurement (weight/height/head circ.)
+  agedays     = "agedays",      # age in days (delete this line if you use DATES below)
+  sex         = "sex",
+  measurement = "measurement",
+
+  # ==========================================================================
+  #  SEX CODING
+  #  Default: male = 0,"m","b","male","boy"; female = 1,"f","g","female","girl"
+  #  IMPORTANT: growthcleanr reads 1 as FEMALE. If your data uses 1 = male,
+  #  2 = female, you MUST set this. Whatever you put here REPLACES the defaults,
+  #  so list every code you use. Delete this line to keep the defaults.
+  # ==========================================================================
+  sex_coding = list(male   = c(0, "m", "b", "male", "boy"),
+                    female = c(1, "f", "g", "female", "girl")),
+
+  # ==========================================================================
+  #  MEASUREMENT-TYPE (param) CODING
+  #  growthcleanr recognizes only these spelled-out labels:
+  #    WEIGHTKG, WEIGHTLBS, HEIGHTCM, HEIGHTIN, LENGTHCM, LENGTHIN, HEADCM, HEADIN
+  #  If your data uses other labels (e.g. WT/HT/HC), map them here. Mapping to an
+  #  imperial name (WEIGHTLBS/HEIGHTIN/...) also tells growthcleanr the units.
+  #  EXAMPLE (default is NULL): map your own labels.
+  #  Delete this line if your labels already match the names above.
+  # ==========================================================================
+  param_coding = list(WEIGHTKG = c("WT", "Weight"),
+                      HEIGHTCM = c("HT", "Height"),
+                      HEADCM   = c("HC", "HeadCirc")),
+
+  # ==========================================================================
+  #  DATES INSTEAD OF agedays  (optional)
+  #  Most people supply age in days and can DELETE this whole section.
+  #  To use dates instead: fill in your two date columns below AND delete the
+  #  `agedays` line up in COLUMN NAMES. growthcleanr computes age from the dates.
+  #  Text dates like "2013-03-04" or "15 Mar 2013" work with no extra setting.
+  #  For number dates like "3/4/2013", set date_order to "mdy" or "dmy".
+  # ==========================================================================
+  dob        = NULL,   # e.g. "birth_date"
+  visit_date = NULL,   # e.g. "measure_date"
+  date_order = NULL,   # e.g. "mdy" (US) or "dmy" -- only for number dates
+
+  quietly = FALSE      # FALSE prints a progress + cleaning summary; TRUE stays silent
+)
+
+# --- Save the cleaned results -----------------------------------------------
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+</details>
+
+<details>
+<summary><strong>Rename your columns</strong></summary>
+
+Tell growthcleanr which of your columns is which. You do not have to rename anything in your data.
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")
+
+# Left = the name growthcleanr uses; right = YOUR column name.
+cleaned <- cleangrowth(   # to check your setup first, change "cleangrowth" to "gc_runtrial"
+  df,
+  subjid      = "patid",
+  id          = "row_id",     # optional per-ROW id; delete if you have none
+  param       = "measure",
+  agedays     = "age_days",
+  sex         = "gender",
+  measurement = "value"
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+</details>
+
+<details>
+<summary><strong>Set your sex coding (including 1 = male, 2 = female)</strong></summary>
+
+growthcleanr reads **`0` as male and `1` as female** by default. It will also accept M/F, B/G, male/female, boy/girl. If your data uses `1` = male, `2` = female, you must tell it -- growthcleanr detects that pattern and refuses to run rather than silently misclassify everyone. It can't detect the pattern if every value is `1` (for example, all boys), so it reads them as female and gives a prominent warning. Whatever you list here replaces the defaults, so include every code your data uses. 
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")
+
+cleaned <- cleangrowth(   # to check your setup first, change "cleangrowth" to "gc_runtrial"
+  df,
+  sex_coding = list(male = 1, female = 2)   # your codes; replaces the defaults
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+</details>
+
+<details>
+<summary><strong>Use your own measurement-type labels (WT / HT / HC)</strong></summary>
+
+growthcleanr recognizes only the spelled-out labels `WEIGHTKG`, `WEIGHTLBS`, `HEIGHTCM`, `HEIGHTIN`, `LENGTHCM`, `LENGTHIN`, `HEADCM`, `HEADIN` -- there are deliberately no built-in abbreviations. Map your labels to them. Mapping a label to an imperial name (`WEIGHTLBS` / `HEIGHTIN` / ...) also declares that its values are imperial.
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")
+
+cleaned <- cleangrowth(   # to check your setup first, change "cleangrowth" to "gc_runtrial"
+  df,
+  param_coding = list(
+    WEIGHTKG = c("WT", "Weight"),
+    HEIGHTCM = c("HT", "Height"),
+    HEADCM   = c("HC", "HeadCirc")
+  )
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+</details>
+
+<details>
+<summary><strong>Imperial units (pounds and inches)</strong></summary>
+
+Metric units are recommended, but if you wish to clean measurements in pounds and inches, label them `WEIGHTLBS` and `HEIGHTIN` (or `LENGTHIN`, `HEADIN`). growthcleanr converts them internally to metric for cleaning; the `measurement` column in the output stays as you entered it. If your labels are something else (for example `wt_lb`), map them to the imperial names with `param_coding` -- a label mapped to `WEIGHTKG` or `HEIGHTCM` is read as metric.
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")   # param values WEIGHTLBS / HEIGHTIN
+
+cleaned <- cleangrowth(   # to check your setup first, change "cleangrowth" to "gc_runtrial"
+  df
+  # If your labels differ, add (after "df,"):
+  # param_coding = list(WEIGHTLBS = "wt_lb", HEIGHTIN = "ht_in")
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+**Semi-wide data in pounds and inches.** Map each value column to its imperial name (see the *Semi-wide data* box below).
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")   # one row per visit; columns such as wt_lb, ht_in
+
+cleaned <- cleangrowth(   # to check your setup first, change "cleangrowth" to "gc_runtrial"
+  df,
+  input_format  = "semi_wide",
+  semiwide_cols = list(WEIGHTLBS = "wt_lb", HEIGHTIN = "ht_in")   # your column names
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+**Wide data in pounds and inches.** Map each column-name prefix to its imperial name (see the *Wide data* box below).
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")   # one row per subject; columns like wt_1, ht_1, wt_2, ...
+
+cleaned <- cleangrowth(   # to check your setup first, change "cleangrowth" to "gc_runtrial"
+  df,
+  input_format = "wide",
+  wide_cols    = list(WEIGHTLBS = "wt", HEIGHTIN = "ht")   # your prefixes (the part before _N)
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+</details>
+
+<details>
+<summary><strong>Use dates instead of age in days</strong></summary>
+
+Supply a birth date and a visit date and growthcleanr computes each age for you. Do not also supply an `agedays` column. Text dates like `"2013-03-04"` or `"15 Mar 2013"` need no extra setting; for number dates like `"3/4/2013"`, set `date_order`.
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")
+
+cleaned <- cleangrowth(   # to check your setup first, change "cleangrowth" to "gc_runtrial"
+  df,
+  subjid      = "patid",
+  param       = "param",
+  sex         = "sex",
+  measurement = "measurement",
+  dob         = "birth_date",
+  visit_date  = "measure_date",
+  date_order  = "mdy"          # delete this line if your dates are text (e.g. yyyy-mm-dd)
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+</details>
+
+<details>
+<summary><strong>Semi-wide data (one row per visit)</strong></summary>
+
+In semi-wide format, each row is one visit: a subject id, a sex, an age (or dates), and one column per measurement type -- for example a weight column and a height column side by side. Set `input_format = "semi_wide"`. If your value columns are literally named `WEIGHTKG`, `HEIGHTCM`, `HEADCM`, growthcleanr finds them automatically; otherwise map them with `semiwide_cols`. The results come back in the same shape, with growthcleanr's `exclude` result added next to each measurement column. The column-name, sex-coding, and date options from the boxes above apply here too.
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")   # one row per visit
+
+cleaned <- cleangrowth(   # to check your setup first, change "cleangrowth" to "gc_runtrial"
+  df,
+  input_format = "semi_wide",
+  # Map each measurement type to the column that holds its values.
+  # Delete this line if your columns are already named WEIGHTKG / HEIGHTCM / HEADCM.
+  semiwide_cols = list(WEIGHTKG = "wt_kg", HEIGHTCM = "ht_cm", HEADCM = "head_cm")
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+</details>
+
+<details>
+<summary><strong>Wide data (one row per subject)</strong></summary>
+
+In wide format, each row is one subject, with a subject id, a sex, and repeated visit "blocks" numbered with a `_N` suffix: an age column and one column per measurement type for each visit -- for example `agedays_1`, `wt_1`, `ht_1`, then `agedays_2`, `wt_2`, `ht_2`, and so on. Set `input_format = "wide"`. You choose the column-name prefix for each measurement type and map it with `wide_cols`; growthcleanr discovers the visit blocks from the `_N` numbers. If your prefixes are literally `WEIGHTKG`, `HEIGHTCM`, `HEADCM` (and `agedays`), growthcleanr finds them automatically. Results come back in the same shape, with growthcleanr's `exclude` result added next to each measurement column.
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")   # one row per subject; columns like wt_1, ht_1, wt_2, ...
+
+cleaned <- cleangrowth(   # to check your setup first, change "cleangrowth" to "gc_runtrial"
+  df,
+  input_format = "wide",
+  # Give the column-name PREFIX for each measurement type (the part before _N).
+  # Delete this line if your prefixes are already WEIGHTKG / HEIGHTCM / HEADCM.
+  wide_cols = list(WEIGHTKG = "wt", HEIGHTCM = "ht", HEADCM = "hc")
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+If some subjects have more than 25 visits in wide format, growthcleanr still reads every visit block but gives a warning; add `max_blocks = <a larger number>` to avoid it.
+
+</details>
+
+<details>
+<summary><strong>See more detail about why values were excluded</strong></summary>
+
+By default growthcleanr returns a short `exclude` code for each value. Add `exclude_detail = TRUE` for a second, finer-grained `exclude_detailed` column that names the specific reason. For every optional diagnostic column at once, use `full_detail = TRUE` instead. See `vignette("output")` and `vignette("exclusion-codes")` for what the columns and codes mean.
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")
+
+cleaned <- cleangrowth(   # to check your setup first, change "cleangrowth" to "gc_runtrial"
+  df,
+  exclude_detail = TRUE   # adds a finer-grained "exclude_detailed" column
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+</details>
+
+<details>
+<summary><strong>Data that includes adults</strong></summary>
+
+growthcleanr cleans children and adults in the same run: by default, measurements at age 20 years and older are cleaned with the adult algorithm and younger measurements with the child algorithm. You do not have to split your data. Two settings you may want are where the child/adult boundary falls (`adult_cutpoint`, default 20, may be set between 18 and 20) and how strict the adult algorithm is (`adult_permissiveness`, default `"looser"` -- in general, `looser`/`loosest` flag fewer values and `tighter`/`tightest` flag more).
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")
+
+cleaned <- cleangrowth(   # to check your setup first, change "cleangrowth" to "gc_runtrial"
+  df,
+  adult_cutpoint       = 20,        # age in years when the adult algorithm takes over (18-20)
+  adult_permissiveness = "looser"   # loosest to tightest; in general, looser/loosest flag fewer values and tighter/tightest flag more
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+To choose a level, see Section 1D of `vignette("configuration")`.
+
+</details>
+
+<details>
+<summary><strong>Large datasets: run in parallel and save progress</strong></summary>
+
+For many subjects, run on several CPU cores (`parallel = TRUE`). Checkpointing is on by default: for datasets with more than 5,000 subjects, growthcleanr cleans in checkpoints saved to a temporary folder and deletes them when the run finishes. Set `checkpoint_dir` to keep the checkpoint files so an interrupted run can resume, or `checkpoint = FALSE` to write nothing to disk. See `vignette("large-datasets")`.
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")
+
+cleaned <- cleangrowth(   # to check your setup first, change "cleangrowth" to "gc_runtrial"
+  df,
+  parallel       = TRUE,             # use several CPU cores
+  checkpoint_dir = "gc_checkpoints"  # save progress to this NEW folder (growthcleanr will make it)
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+</details>
+
+<details>
+<summary><strong>Keep only included values (build the analysis set)</strong></summary>
+
+growthcleanr does not remove any values; it adds an `exclude` column with a recommendation for each one. To build an analysis set of the values it recommends keeping, filter on that column. (`bin_exclude == "Include"` gives the same rows.)
+
+```r
+library(data.table)
+cleaned <- fread("my_growth_data_cleaned.csv")   # output of cleangrowth()
+
+analysis <- cleaned[exclude == "Include"]
+fwrite(analysis, "my_growth_data_for_analysis.csv")
+```
+
+</details>
+
+<details>
+<summary><strong>BMI after cleaning</strong></summary>
+
+`longwide()` keeps the included values and puts each weight and height measured on the same day on one row; `simple_bmi()` adds BMI; `ext_bmiz()` adds BMI z-scores and percentiles (including extended BMI z-scores), which are computed for ages 2-19 years only. See `vignette("utilities")` for details.
+
+```r
+library(growthcleanr)
+library(data.table)
+cleaned <- fread("my_growth_data_cleaned.csv")   # output of cleangrowth()
+
+wide <- longwide(cleaned)   # included values only; one row per subject and day with both weight and height
+wide <- simple_bmi(wide)    # adds bmi
+bmiz <- ext_bmiz(wide)      # adds bmiz, bmip, and related columns (ages 2-19 years)
+fwrite(bmiz, "my_growth_data_bmiz.csv")
+```
+
+If you used column-name, `sex_coding`, or `param_coding` settings in `cleangrowth()`, give `longwide()` the same settings.
+
+</details>

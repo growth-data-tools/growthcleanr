@@ -1,0 +1,154 @@
+---
+title: "Large datasets: parallel and checkpointing"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Large datasets: parallel and checkpointing}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\usepackage[utf8]{inputenc}
+---
+
+growthcleanr has two options that matter most on large datasets:
+
+- **parallel** -- spread the work across several CPU cores so the run finishes faster.
+- **checkpointing** -- clean the subjects in checkpoints and write each finished checkpoint to disk, so only one checkpoint is being cleaned in memory at a time. (The full input and the combined result are still held in memory.) This is **on by default**, and on a large dataset it both speeds the run up and keeps it from running out of memory.
+
+growthcleanr 2.x's `splitinput()` and split-file workflow were removed; checkpointing replaces them.
+
+You can use either one on its own or both together. Neither one changes your results: growthcleanr cleans each subject independently of every other subject, so running in parallel, in checkpoints, or all at once in memory produces the same output.
+
+For the everyday copy-and-paste scripts, see `vignette("example-scripts")`. The scripts below assume your data is already in that standard format.
+
+# Checkpointing is automatic
+
+For most people this needs no attention: **checkpointing is on by default and cleans up after itself.**
+
+Here is what it does and why it helps. For some steps of the algorithm, memory use rises nonlinearly as the dataset size increases. A big run in a single block gets slow out of proportion to its size, and a large enough one runs out of memory and fails. Cleaning in checkpoints keeps the amount of data in memory at any moment bounded, which turns a steep curve into a roughly steady rate. With checkpointing, runtime for growthcleanr scales more linearly with dataset size. So on large datasets checkpointing is a speed and reliability feature, not just a way to resume. (Note that many things influence runtime beyond the number of observations in a dataset, such as how many values are excluded and in which steps.)
+
+By default:
+
+- Checkpointing **engages on its own only when a dataset is large enough to benefit** -- more than `checkpoint_size` subjects (5000 by default). Smaller and typical datasets fit comfortably in memory, so growthcleanr runs them in memory and **writes nothing to disk**.
+- When it does engage, the checkpoint files go to a **temporary folder that is deleted automatically** -- growthcleanr removes them when the run ends, including when it stops with an error or you interrupt it. You do not choose or manage a location. If R itself crashes or is killed (for example by running out of memory), R cannot delete its temporary folder, so the checkpoint files remain in your system's temporary directory until you delete them or your operating system clears that directory.
+
+# Keeping the checkpoint files (and resuming)
+
+If you want the checkpoint files kept at a location you choose -- so that an interrupted run can **resume** where it stopped, or so you can inspect them -- give `checkpoint_dir` the name of a folder. growthcleanr writes each checkpoint's result to a file in that folder and combines them at the end. The folder is created if it does not exist.
+
+Use a **new, empty folder for each dataset or run.** If a run is interrupted, re-run the same script with `checkpoint_resume = TRUE`; growthcleanr skips the checkpoints that already finished and picks up where it stopped. If the data has changed since the checkpoint files were written, any rows not found in them are returned with `exclude = NA` and a warning; if the change was not intentional, rerun with `checkpoint_resume = FALSE` to clean every row.
+
+- `checkpoint_size` -- how many subjects go in each saved file (default 5000). You can usually leave this alone.
+- `keep_checkpoints` -- after a run finishes, `TRUE` (the default when you set `checkpoint_dir`) leaves the files in the folder; set `FALSE` to delete them once the combined result is returned.
+
+<details>
+<summary><strong>Checkpoint to a folder you keep</strong></summary>
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")
+
+cleaned <- cleangrowth(
+  df,
+  checkpoint_dir  = "gc_checkpoints",  # a NEW, empty folder just for this run
+  checkpoint_size = 5000               # subjects saved per file (default; usually leave as is)
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+</details>
+
+<details>
+<summary><strong>Resume a run that was interrupted</strong></summary>
+
+Re-run the same script, adding `checkpoint_resume = TRUE`. Use the same folder, the same data, the same `checkpoint_size`, and the same other `cleangrowth()` arguments (for example `cf_rescue`, `adult_permissiveness`, `adult_cutpoint`, and output options) as the original run. growthcleanr does not check these; a mismatch silently mixes results from different settings.
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")
+
+cleaned <- cleangrowth(
+  df,
+  checkpoint_dir    = "gc_checkpoints",  # the SAME folder as the interrupted run
+  checkpoint_resume = TRUE               # skip the checkpoints that already finished
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+</details>
+
+# Turning checkpointing off
+
+Set `checkpoint = FALSE` to disable checkpointing entirely. growthcleanr then runs the whole dataset in memory and **never writes any intermediate data to disk.** Use this when your environment must not write data to disk at all. On a very large dataset this can be slow, or run out of memory -- which is exactly what checkpointing exists to prevent -- so reserve it for when writing to disk is not acceptable.
+
+```r
+cleaned <- cleangrowth(df, checkpoint = FALSE)
+```
+
+`checkpoint = FALSE` takes precedence: if you set it and also pass a `checkpoint_dir`, the directory is ignored and nothing is written (with a warning).
+
+# Where your data is written
+
+Because the checkpoint files hold your data, it is worth knowing where they go:
+
+- **Default (ephemeral).** Files go to your R session's temporary folder and are deleted automatically when the run finishes. They are not kept, and small runs write nothing at all. (If R crashes or is killed mid-run, see the note under *Checkpointing is automatic* above.)
+- **`checkpoint_dir` (kept).** Files go to the folder you name and stay there after the run so you can resume or inspect them. You chose the location, so you know where your data is; remember the files persist until you delete them (or set `keep_checkpoints = FALSE`). The files hold identifiers and measurements, so put the folder somewhere appropriate for your data and avoid cloud-synced folders for data that should stay secure.
+- **`checkpoint = FALSE` (nothing on disk).** No intermediate data is written anywhere.
+
+**One note for very large datasets on Linux.** On most systems the temporary folder is on disk, so the default is fine. On some Linux systems the temporary folder is a RAM disk (for example `/tmp` mounted as `tmpfs`). There, the temporary checkpoint files count against memory, which cancels the memory savings on a very large dataset. If you are on such a system and cleaning a very large dataset, set `checkpoint_dir` to a folder on a real disk. macOS and Windows use disk-backed temporary folders by default, so no action is needed there.
+
+# Running in parallel
+
+Set `parallel = TRUE`. By default growthcleanr chooses the number of worker cores for you: `min(8, number of cores on your machine - 1)`. It caps at 8 because more workers than that tend to cost more in setup than they save. On a shared server or a scheduled cluster job, set `cores` to the number of cores you were allocated; automatic detection counts every core on the machine.
+
+To pin the number yourself, set `cores` to a whole number. Leaving one core free (the default behavior) keeps your computer responsive during the run. A value larger than the number of cores on your machine is reduced to that number (extra workers only compete for the same cores). `cores` is ignored when `parallel = FALSE`.
+
+<details>
+<summary><strong>Run in parallel</strong></summary>
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")
+
+cleaned <- cleangrowth(
+  df,
+  parallel = TRUE,   # use several CPU cores
+  cores    = NULL    # NULL auto-detects (up to 8); or set a number like 4
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+</details>
+
+# Doing both (recommended for very large datasets)
+
+Parallel and checkpointing work together: the run is both faster and, if you keep the checkpoint files with `checkpoint_dir`, resumable.
+
+<details>
+<summary><strong>Run in parallel and keep resumable checkpoints</strong></summary>
+
+```r
+library(growthcleanr)
+library(data.table)
+df <- fread("my_growth_data.csv")
+
+cleaned <- cleangrowth(
+  df,
+  parallel          = TRUE,
+  checkpoint_dir    = "gc_checkpoints",
+  checkpoint_resume = FALSE   # set TRUE only when resuming an interrupted run
+)
+fwrite(cleaned, "my_growth_data_cleaned.csv")
+```
+
+</details>
+
+# A few tips
+
+- **Results do not change.** With or without parallel or checkpointing, each subject is cleaned independently, so the output is the same.
+- **You usually do not have to do anything.** Checkpointing is automatic on large data and cleans up after itself; reach for `checkpoint_dir` only when you want the files kept for resuming, and for `checkpoint = FALSE` only when nothing may be written to disk.
+- **One folder per dataset or run.** Without `checkpoint_resume = TRUE`, a run deletes the checkpoint files already in the folder; with it, files from a different dataset can give wrong results. It is best practice to start each run with its own empty folder unless consciously using prior checkpoints.
+- **Estimate run time before a very large run (if desired).** Clean a random sample of subjects corresponding to the checkpoint size you plan to use with the arguments you plan to use (including `parallel` and `cores`), and time the run. With checkpointing, run time grows roughly in proportion to the number of subjects, so scale the sample time by the ratio of subjects; allow extra time at the end for combining the checkpoint files.
+- **Watch progress.** Progress and a cleaning summary print by default as the run proceeds (they also name the checkpoint location a run is using); set `quietly = TRUE` to silence them.
+- **Advanced use.** You can also recombine a kept checkpoint folder yourself with `cleangrowth_checkpoint_combine()` (`cleangrowth_checkpoint()` is deprecated; use `cleangrowth(checkpoint_dir = ...)`); see `vignette("wrapper")` for how checkpointing works internally.

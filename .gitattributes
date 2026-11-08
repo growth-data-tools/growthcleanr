@@ -1,0 +1,5 @@
+# Store all text files with LF line endings (git auto-detects binaries).
+* text=auto eol=lf
+
+# Shipped reference data: leave byte-identical, never normalize.
+inst/extdata/** -text

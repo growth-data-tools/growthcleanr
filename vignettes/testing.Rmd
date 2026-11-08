@@ -1,0 +1,461 @@
+---
+title: "Technical reference: testing"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Technical reference: testing}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\usepackage[utf8]{inputenc}
+---
+
+This vignette inventories the growthcleanr test suite: what each test file covers, how the tests are run, and the standing coverage gaps. The summary table is the quick index; the per-file sections below give a per-test breakdown for the files that warrant one.
+
+## Summary
+
+Counts below are from a fresh full run on the installed package: all files **green, 0 failures**. "Tests" = `test_that()` blocks; "Assertions" = passing `expect_*` checks.
+
+| File | Tests | Assertions | Scope |
+|------|-------|------------|-------|
+| `test-cleangrowth.R` | 15 | 117 | `cleangrowth()` API: adult integration (incl. `adult_scale_max_lbs` and `adult_overrides` pass-through + `adult_overrides` container/name/value validation), child/adult spanning subjects, requested optional columns on adult-only input |
+| `test-cran-smoke.R` | 2 | 23 | CRAN smoke test (the one file that intentionally does **not** `skip_on_cran()`): a fast, deterministic end-to-end `cleangrowth()` run for both the child and adult algorithms on tiny inline fixtures, asserting only definitional/unambiguous cases (missing/not-a-param preprocessing codes, exact same-day duplicates, a clearly-normal Include, an absurd population-limit value). Because almost every other algorithm file is file-level `skip_on_cran()`'d for runtime, this is the only end-to-end exercise of `cleangrowth()` on CRAN's platforms — it guards build/load failure, output-assembly regressions, and gross numeric divergence |
+| `test-data-frame-api.R` | 13 | 41 | Data-frame entry point: canonical/remapped columns, vector↔data-frame equivalence, id auto-gen, input errors, `full_detail`/`qm_detail` decoupling |
+| `test-visit-date-agedays.R` | 41 | 114 | Fractional `agedays` cleaned as whole days (rounded down, so -0.5 is day -1) but returned as submitted (`gc_internal_agedays` under `internal_detail`); age from `dob` + `visit_date`: route resolution and precedence; a lone date column parsed alongside an `agedays` column (parse-only, ages from `agedays`) surfacing `gc_internal_visit_date`/`gc_internal_dob` under `internal_detail`; expanded text-date parsing (year-first numeric, English spelled-month, numeric day/month via `date_order`) with one-format-per-run, four-digit-year (1900–2099), and English-locale guards; malformed/ambiguous/numeric rejection; date values with no digits treated as blank and a few impossible dates set aside (many stop); `gc_internal_dob`/`gc_internal_visit_date`; missing dates; negative ages |
+| `test-carry-through.R` | 17 | 76 | `carry_through`: non-role columns parked and returned appended (long input), original order/values/types, a column named like a returned growthcleanr column returned as `userinput_<name>` with a warning (names of columns not returned in the run kept), a user `line` column carried unchanged, no-`id` path, input not mutated |
+| `test-semiwide-input.R` | 19 | 61 | `input_format = "semi_wide"`: keystone long/semi-wide equivalence, column remapping, empty cells vs zeros, same-day extraneous values, missing-weight/height warnings (HC-absent warning removed), date route, determinism, error catalog, the long-only length rule (length.adjust rejected; a `LENGTHCM`/`LENGTHIN` value at any age gets default handling, matching a column mapped to `HEIGHTCM`, including at 19 years and at days 729 and 730); long output carries the user's other columns (renamed `userinput_<name>` when named like a returned growthcleanr column, as is an id column) |
+| `test-wide-input.R` | 24 | 76 | `input_format = "wide"`: keystone long/wide equivalence, wide-vs-semi-wide agreement, block discovery + ragged subjects, `_0` baseline block, prefix/structural remapping, imperial/length prefixes, same-day blocks as extraneous values, date route, value-with-no-age, strictness warnings (block gap, `max_blocks`, non-monotonic ages, repeated subject), missing-weight/height warnings (HC-absent warning removed), determinism, error catalog, round-trip spec, the long-only length rule (length.adjust rejected; a `LENGTHCM`/`LENGTHIN` value at >= 2 years gets default handling, matching a prefix mapped to `HEIGHTCM`); long output carries the user's other columns (renamed `userinput_<name>` when named like a returned growthcleanr column, as is an id column) and, for wide, only subject-level columns such as `dob` |
+| `test-semiwide-output.R` | 11 | 53 | `output_format = "semi_wide"`: the equivalence chain (long -> long == semi -> long == melt-back of semi -> semi), echo fidelity, `widened_emit` control, imperial unit conversion reporting, the two-directional length adjustment on long-format fixtures (length.adjust in semi-wide is no longer supported -- see the long-only length rule under the input files), `carry_through` in mirror mode, scope errors, determinism |
+| `test-wide-output.R` | 14 | 61 | `output_format = "wide"`: the equivalence chain (long -> long == wide -> long == melt-back of wide -> wide, incl. a syngrowth slice), SDEs at scale (weight-only same-day duplicate blocks), echo fidelity + ragged NA verdicts, `widened_emit` control with per-block `gc_internal_agedays_N`, imperial reporting, `carry_through` in mirror mode, same-day blocks as extraneous values, scope/collision errors, determinism |
+| `test-hostile-input.R` | 46 | 128 | Adversarial input: long-format guards (zero-row / all-NA-required-column / duplicate-column / clean errors, factor `measurement` converted by its labels with a warning, `difftime` `agedays` converted to days in its own units and factor `agedays` by its labels, NA structural key → `Exclude-Missing-Info`, empty-core no-crash, near-match column hint, character coercion, hand-built `ref_tables` with a missing/misnamed/non-function element or non-list, non-scalar/non-numeric `adult_scale_max_lbs`) plus the semi-wide/wide reshape sweep (duplicate value/structural/block-column guards, and the intentional reshape-vs-long differences: unmapped column ignored, NaN cell dropped, all-empty parameter column warns); adult missing-measurement handling (same-day HT+WT pair with one side missing across all permissiveness levels, longitudinal embedded NA, and a fuzz pass over the adult regression fixture blanking one value per subject — all must not crash and report `Exclude-Missing-Info`) |
+| `test-hardlimit-single-obs.R` | 7 | 32 | Single-observation hard-limit exclusion per parameter (child WT/HT/HC birth + non-birth, adult WT/HT) end-to-end via `cleangrowth()`; lone in-range value survives to output exactly once |
+| `test-flexible-input-coding.R` | 25 | 69 | Flexible sex/param coding: sex-code recognition + verbatim echo, 1=male/2=female hard stop + override, all-1 sex warning + override, unrecognized-sex warning → `Exclude-Missing-Info`, all-adult 1/2 cleans, custom `sex_coding`, canonical param case-insensitivity (no built-in abbreviations — bare `WT`/`HT`/`HC` → Not-GC-Param unless mapped), `param_coding` override-to-imperial + validation errors, `HEADIN` + `LENGTHIN` conversion, unit-error >20% warning (incl. HC>5y excluded from the denominator) |
+| `test-child-regression.R` | 7 | 47 | Frozen counts, spot checks, cross-sample stability, Missing, HC, preload_refs |
+| `test-partial-run.R` | 9 | 21 | `gc_partial_run()`: full-run equivalence (exclude + `tbc.sd`), equivalence under checkpointing, no-change/all-changed/added/removed-subject handling, output-column-mismatch guard, `id` + `changed_subjids` validation |
+| `test-gc-runtrial.R` | 12 | 31 | `gc_runtrial()`: previews input setup on a data sample — format/coding detection, warning capture ("FLAGGED WHILE READING"), cleaning-result report, message muffling |
+| `test-child-algorithms.R` | 28 | 68 | CF rescue (deltaz/nextz rule: decline→rescue, jump→exclude, whole-string, end-of-series age rule; cf_detail, CF-E), unit-error smoke tests (Section 2 — "excluded somehow", not Evil-Twins-specific), Error Load, HC boundary, parallel (incl. an out-of-range `cores` capped to `detectCores()`), GA correction, Birth EWMA2, LENGTHCM |
+| `test-child-support-fns.R` | 6 | 24 | Support-fn units (T20/T21/T22/T13/T14): `get_dop`, `.child_valid` include-flag matrix, `.child_z3` boundary/order, `ewma()` cache_env, `ewma_cache_update()` neighbor rebuild |
+| `test-child-piv.R` | 13 | 21 | Child Step 7 PIV (T18/T19): standardized-PIV low cutoffs + 1-year split on HT (`piv.z.ht.low.young`/`.old`; WT has no low cutoffs), absolute birth backstops (WT>10.5, HT>65, HC>50 at age 0; WT>40 <2y, strict boundary) with same-magnitude non-birth controls; BMI limits on same-day WT x HT pairs (BMI<3 any age, >50 <2y, >150 >=2y; more-extreme-z value excluded; multi-pairing rule; in-range control) |
+| `test-child-sde-tiebreak.R` | 1 | 6 | Same-day-identical tiebreak (T2): birth keeps lowest id, non-birth keeps highest id; loser is `Exclude-Identical` |
+| `test-child-sde-charid.R` | 2 | 3 | Non-numeric character `id` (site-prefixed) does not break Step 13 SDE resolution: run completes with no same-day Include duplicate, and character-id vs numeric-id runs give identical exclusions (regression for the `keep_id_*` integer-coercion bug that crashed Step 19) |
+| `test-child-parameters.R` | 6 | 23 | Parameter acceptance + behavior (cf_rescue, ewma_window incl. hostile-value rejection, error load, imperial, LENGTHCM) |
+| `test-child-edge-cases.R` | 14 | 29 | Sparse/degenerate data, all-NA, same-day, negative agedays, HC>5y, single-value PIV (WT/HT/HC), determinism |
+| `test-child-et.R` | 3 | 12 | Child Evil Twins fixture: membership, per-pattern invariants, HC interior-step cleaned (not out-of-range) |
+| `test-child-birth-ewma2.R` | 3 | 11 | Birth HT/HC EWMA2 (Steps 15/16): 3-value SP with birth, isolated low birth-WT keep/exclude band |
+| `test-child-corroboration.R` | 3 | 16 | GA-correction corroboration gate (incl. HT/HC confirm-correction + 3.5 cap); UER3 unit-error 2-group drop |
+| `test-child-unit-error-range.R` | 7 | 22 | `unit_error_range` output column + `.unit_error_range_flag`/`.compute_unit_error_range` band math |
+| `test-exclusion-code-crosswalk.R` | 5 | 11 | Detailed→Summary crosswalk: no-NA, every Detailed mapped, Summary = canonical fold, valid factor levels, shared/child/adult folds exercised |
+| `test-adult-clean.R` | 64 | 224 | All 14 adult steps, 4 permissiveness levels, edge cases (via `cleanadult()` directly; incl. non-scalar `adult_permissiveness` and hostile setting overrides → clean errors); Step 13 keeps a single-value height when any same-day BMI is in range; `mean_ht` computed from included heights only and populated on excluded height rows (NA when no height is included) |
+| `test-adult-et.R` | 7 | 20 | Adult Evil Twins anchor rule (4-eligible-weight requirement, end/interior cede-to-EWMA), sex=NA CSD fallback |
+| `test-adult-cutpoint.R` | 10 | 25 | Adult HEADCM -> `Exclude-HC-Out-of-Range` and adult LENGTHCM cleaned as height; missing-column error names the missing role (sex-column note); sex-less pediatric rows suggest `adult_cutpoint = 18` only when all pediatric rows are >= 18 y (set aside with a warning when adult rows are present, a stop otherwise); `adult_cutpoint` advisory: no auto-route (all-adult sex-less data stops on sex at the default cutpoint, advisory fires first), `adult_cutpoint = 18` routes to the adult path, the advisory warning fires for all-adult data with 18-20y rows, an explicit cutpoint (18 or 20) silences it, a sub-18y row suppresses it, NA-age rows ignored, and a subject's routing is independent of the rest of the dataset |
+| `test-checkpoint.R` | 24 | 86 | `cleangrowth(checkpoint_dir=)` fold: single-pass-equivalence, fresh-run reset, `checkpoint_resume` (including resume with changed data: user-facing warning, input values kept on unmatched rows, summary "No result" line), checkpoint-cap error, `checkpoint_size`/`batch_size` independence, re-widen under checkpoint, carry-through of extra columns equals non-checkpoint, all-adult (explicit cutpoint 18) equals non-checkpoint, consolidated input warning byte-identical checkpoint vs non-checkpoint, deprecated-shim forwarding; standalone `cleangrowth_checkpoint_combine()` (re-combine in id order, NULL-order, missing-id warning, missing-dir / empty-dir errors, quietly/verbose/log_file); `mean_ht = TRUE` returned under checkpointing; guard that every `cleangrowth()` argument is forwarded to the checkpoints or on an explicit not-forwarded list |
+| `test-sd-recenter.R` | 19 | 47 | `sd.recenter` wiring for `cleangrowth()`: `"none"` disables recentering (case- and space-insensitive), `recenter_source` is not an argument, including checkpointed runs (`cleangrowth(checkpoint_dir=)`); `recenter_detail` output contract (columns, `debug`/`full_detail` parity, dedup, checkpoint forwarding); syngrowth-scale guard (the built-in table supplied explicitly is byte-identical to the default); `sd.recenter` validation (removed 2.x options and other values stop, data.frame accepted, caller's table not modified, missing column, duplicate rows, coverage of every evaluable child row with a dataset-wide count under checkpointing) |
+| `test-utils.R` | 16 | 524 | `recode_sex`, `longwide`, `simple_bmi` (utilities, not the cleaning algorithm); `ext_bmiz()` numeric-sex stop; `longwide()` parses sex (M/F, words, `sex_coding`, remapped column; outputs M/F; 1/2 stop and all-1 warning; warns on missing/unrecognized) and param (`param_coding`, imperial -> metric, LENGTHCM as height, HC dropped, unrecognized warned) like `cleangrowth()` |
+| `test-consolidated-input-warning.R` | 7 | 23 | Consolidated input warning (Option B): the three Class-2 defect warnings (zero / negative measurement, negative age) with per-parameter-group and all-rows N/%, one-warning union count, `Generated ids`-only case, unrecognized-sex leading with `sex_coding`, clean data silent |
+| `test-growthcleanr-app.R` | 21 | 90 | Bundled Shiny app: `growthcleanr_app()` exported with a stable signature and the app directory ships + `app.R` parses (CRAN-safe; guards the historical package/path mismatch + syntax breakage), plus the app's mapping-time guards — wide wrong-age-prefix rejected at mapping (not deferred to cleaning), sex-coding auto-detect (recognizes default pairs, skips 1/2), `value_freq`/mapped-column reactives tracking the sex/param selection, semi-wide custom-column mapping (measurement columns keep their names), an all-miss measurement mapping failing at Step 2 (not at cleaning), the hostile-input guard helpers, and long-format non-numeric-measurement + duplicate-field mappings rejected at mapping while a valid numeric mapping still succeeds. |
+| `test-cli.R` | 12 | 54 | Command-line driver: `.gc_cli_opts()` coercion + typing (numeric/integer/csv, dotted arg names), boolean + inverted flags, Tier-2 `param_coding`/`sex_coding`/`semiwide_cols`/`wide_cols` assembly, base-param name flags + separate `--*-units` routing to the metric vs imperial canonical key (orphan units flag unused; bad units value errors), up-front enum/number/one-sided-sex validation errors; `run_gc_cli()` round-trip equals an in-R `cleangrowth()` call, missing/empty-input errors, output-I/O guards (same-path errors and leaves the input intact; missing output directory errors), checkpointed run equals single-pass (writes `checkpoint_NNNN.rds`); `skip_on_cran()` shell-out through the shipped `inst/scripts/gcdriver.R` via `gc_cli_path()` (exit codes + result equivalence, incl. `--semiwide-col-weight`/`--weight-units`). |
+| `test-v2-migration-messages.R` | 17 | 73 | Messages for users coming from growthcleanr 2.x: positional 2.x call stop; `adjustcarryforward()` stop; `cf_rescue = TRUE` stop (abbreviations still match; case- and space-insensitive); `include.carryforward` message gives both 2.x mappings; `log.path` deprecation warning; percentages below 0.05% shown as `<0.1%`; unit-error-range warning wording; removed 2.x arguments stop with the replacement (and the list covers every removed 2.2.3 argument), with a 2.x `sd.recenter` string reported in the same stop (a missing value or `"none"` is not); other unknown arguments still stop, unevaluated, also via `cleangrowth_checkpoint()`; one-time vector-style note (not gated by `quietly`); "no id supplied" notice once per session (not used up by `gc_runtrial()`) while NA/duplicated-id notices repeat; `adult_cutpoint` clamp warning (days hint; once under checkpointing); case-insensitive `adult_permissiveness` and a call-free error; summary wording (included / Set aside); `longwide()` unknown `inclusion_types` warning and missing-`exclude` hint; command-line short-flag rejection, unknown-flag hint, and `--widened-emit` with long output (warns; an invalid value stops); command-line choice values ignore case and surrounding spaces |
+| **Total** | **550** | **2362 run** | Full testthat suite green (37 files); 0 skipped. |
+
+All 37 testthat files run standalone under `Rscript` (each carries `library(growthcleanr)` at the top). Most also carry `skip_on_cran()`. The exceptions are `test-cran-smoke.R`, which runs on CRAN by design, and `test-adult-clean.R`, `test-child-sde-charid.R`, `test-consolidated-input-warning.R`, and `test-gc-runtrial.R`.
+
+---
+
+## Running Tests
+
+```bash
+# Single file
+NOT_CRAN=true Rscript -e 'testthat::test_file("tests/testthat/test-child-algorithms.R")'
+
+# All files
+NOT_CRAN=true Rscript -e 'testthat::test_dir("tests/testthat/")'
+```
+
+**IMPORTANT:** Tests use `library(growthcleanr)`, which loads the *installed* package. After any code changes, reinstall before testing — otherwise tests run against stale code:
+```r
+devtools::install_local(".", force = TRUE, upgrade = "never")
+```
+
+**Development testing not distributed.** Some testing used in developing the algorithms is not part of the distributed test suite, because it depends on large or non-public fixtures and is being rebuilt. It includes a stress test on a 400-subject dataset with induced errors, code locks on preterm catch-up and preterm same-day cases, tests of the recumbent/standing offset for gestational-age-corrected children, a comparison of `ext_bmiz()` against the CDC SAS program, and a regression harness for the adult algorithm that checks every row of a 1,508-row fixture at all four permissiveness levels.
+
+---
+
+## Per-file detail
+
+The sections below give a per-test breakdown for the files whose individual tests are worth enumerating. Files without a section here (for example the input-format, hostile-input, flexible-coding, CLI, and recentering suites) are fully described by their row in the Summary table above — the Scope column carries their coverage rather than repeating it as a per-test table.
+
+## test-cleangrowth.R
+
+The `cleangrowth()` entry point — dispatches to child and adult algorithms and assembles combined output.
+
+| Test | What it verifies |
+|------|------------------|
+| works as expected on adult synthetic data | Spot-check records, cutpoint comparison, frozen counts, Missing handling |
+| works without either adult or pediatric data | Adult-only, pediatric-only, empty data all return correct row counts |
+| spanning subject: all rows preserved through child/adult split | Real syngrowth subject (child + adult rows): no rows lost, no NA codes |
+| spanning subject: child rows get child codes, adult rows get adult codes | Code prefixes on the **Detailed** level (`exclude_detail = TRUE`): `Exclude-C-*` for child, `Exclude-A-*` for adult (the default Summary `exclude` consolidates the two, so prefixes show only at Detailed) |
+| spanning subject: constructed subject processed correctly across boundary | Synthetic 18y–22y subject: all rows returned, correct prefixes, normal values mostly included |
+| adult integration: output columns present and correctly typed | All rows returned; `bin_exclude` present; `exclude` is a factor with no NAs |
+| adult integration: imperial units processed correctly | HEIGHTIN/WEIGHTLBS through the full pipeline; param preserved as imperial in output; all rows returned, all included, no NA codes |
+| adult integration: adult_permissiveness passes through | 115 cm HT → PIV at `looser`, passes PIV at `loosest` |
+| adult integration: adult_scale_max_lbs passes through | 136 kg flagged with cap = 300 lbs, included without a cap |
+| adult integration: character/UUID ids preserved | String ids survive the round trip intact |
+| adult integration: spanning subject has correct output structure | Subject with rows on both sides of the cutpoint; `bin_exclude` non-NA for all rows |
+| optional columns are emitted for adult-only input, matching mixed output | With `full_detail`/`debug`/`recenter_detail`/`qm_detail`, adult-only and child-only output have the same columns, order, and types as mixed output; adult rows carry the same values (`cf_status = "Adult"`, child-only columns `NA`) |
+| adult rows in an adult-only internal batch are labeled cf_status 'Adult' | Mixed run where one internal batch has no child rows |
+
+---
+
+## test-cran-smoke.R
+
+The only test file that intentionally runs on CRAN (no `skip_on_cran()`), because almost every other algorithm file is skipped there for runtime. A sub-second end-to-end `cleangrowth()` sanity check on tiny inline fixtures, asserting only definitional/unambiguous cases so it cannot fail on a platform-specific trajectory judgment — it guards build/load failure, output-assembly regressions, and gross numeric divergence.
+
+| Test | What it verifies |
+|------|------------------|
+| child algorithm runs end to end and assigns the definitional codes | data.table returned, no rows dropped, default columns present, valid `exclude` factor with no NAs; `measurement == 0` → Missing-Info, a non-param → Not-GC-Param, an exact same-day duplicate resolved, and a clearly-normal value Included |
+| adult algorithm runs end to end and excludes a population-limit value | The adult path runs end to end and an absurd population-limit weight is excluded |
+
+---
+
+## test-data-frame-api.R
+
+The data-frame style entry point (the primary calling style) and the `id` auto-generation/validation behavior.
+
+| Test | What it verifies |
+|------|------------------|
+| cleangrowth(data = df) works with canonical column names | data.table input with default names |
+| cleangrowth(data = df) works with a plain data.frame | data.frame input coerced internally |
+| cleangrowth() accepts remapped column names as strings | `subjid = "patid"`, `id = "row_id"`, etc. |
+| data-frame and vector styles produce identical results | The two calling styles agree row-for-row |
+| missing id column triggers warning + auto-generates | No `id` → warning, sequential 1:N |
+| missing required columns error clearly | Absent required column → informative error |
+| non-data.frame `data` argument errors clearly | Wrong `data` type → error |
+| column-name args reject vectors and non-strings | Column-name args must be single strings |
+| vector style without id warns and auto-generates | Legacy vector path, no id → warning + auto-gen |
+| calling with neither `data` nor vectors errors clearly | Empty call → error |
+| duplicate id values warn and auto-regenerate, preserving user input | Non-unique id → warning, regen, original preserved in `id`, internal id in `gc_internal_id` |
+| NA id values warn and auto-regenerate, preserving user input | NA id → same handling |
+| valid id with display_gc_id sets gc_id == id (no warning) | Valid id → no regen, `gc_id == id` |
+
+---
+
+## test-child-regression.R
+
+Frozen-count and stability tests on syngrowth data. These break on intentional behavior changes — update expected values (and document the re-baseline) when that happens.
+
+| Test | What it verifies |
+|------|------------------|
+| structural invariants on 100-subject subset | Row counts, column presence, factor type, no NAs, ≥1 Include |
+| exclusion counts match expected on 100 subjects | Frozen counts by exclusion code (regression baseline) |
+| spot-check individual records | Specific record ids produce specific exclusion codes |
+| within-subject exclusions stable at 50 vs 100 subjects | Same subject, same code regardless of batch context |
+| missing measurements return Missing | NA measurements → `Exclude-Missing-Info` |
+| HEADCM measurements are processed | HC rows present with valid codes |
+| gc_preload_refs: identical results to standard run | `ref_tables` produces byte-identical output |
+
+---
+
+## test-partial-run.R
+
+Tests the `gc_partial_run()` incremental-run wrapper. The core guarantee is that a partial run equals a full run of the same data under the same options (gc cleans each subject independently after reference recentering).
+
+| Test | What it verifies |
+|------|------------------|
+| partial run equals a full run for every subject | `exclude` + `tbc.sd` identical to `cleangrowth(new_data)` after perturbing one subject |
+| partial run equals a full run under checkpointing | Same, with `checkpoint_dir` set (`checkpoint_size = 5`, `keep_checkpoints = FALSE`); scratch checkpoint files cleaned up |
+| no changed subjects returns the cached result | Empty `changed_subjids` reuses the cache unchanged |
+| all subjects changed equals a plain full run | Recompute set = every subject |
+| an added subject is cleaned automatically | Subject in `new_data` but not the cache is re-cleaned |
+| a removed subject is dropped | Subject in the cache but not `new_data` is dropped |
+| mismatched output options error | Cache and fresh clean with different columns → hard error (no NA-fill) |
+| missing id / missing changed_subjids rejected | Required-argument guards |
+
+---
+
+## test-child-algorithms.R
+
+Constructed-scenario tests organized by algorithm step.
+
+- **CF rescue (Step 6):** standard rescues more than none; `cf_status` populated for rescued; none mode rescues none; all mode rescues all; `cf_detail` adds `cf_status`/`cf_deltaz`/`cf_nextz`; CF-E rows (CF sharing an Include day) labeled and `cf_nextz` skips temp SDEs; cf_detail columns absent by default.
+- **CF rescue rule (Step 6, deltaz/nextz):** a carried value followed by a continued decline is rescued (CF-R); one followed by a jump up (true CF) is excluded (CF-NR); all CFs in one identical-value string share a single status (whole-string decision on the last CF); an end-of-series CF (no `cf_nextz`) falls back to the age rule.
+- **Evil Twins / OTL (Step 9):** single/two/three consecutive unit errors (×2.54) excluded as `Exclude-C-Evil-Twins`; collateral damage on clean neighbors bounded.
+- **Error Load (Step 21):** threshold and mincount parameters control behavior; a many-error subject triggers Unevaluable-Trajectory on remaining Includes.
+- **Age boundary:** HEADCM cleaned ≤5y, `Exclude-HC-Out-of-Range` >5y.
+- **Parallel execution:** `parallel = TRUE` matches `parallel = FALSE`.
+- **GA correction (Step 2b):** very low birth weight gets correction (`ctbc.sd ≠ tbc.sd`); birth z ≥ −2 does not.
+- **Birth EWMA2 (Steps 15/16):** extreme birth weight excluded; normal included; extreme birth height excluded.
+- **LENGTHCM:** results identical to HEIGHTCM for the same measurements.
+
+---
+
+## test-child-parameters.R
+
+Each configurable parameter is accepted and behaves as documented.
+
+| Test | What it verifies |
+|------|------------------|
+| cf_rescue='all' keeps CFs, cf_rescue='standard' excludes them | CF rescue mode behavior |
+| ewma_window parameter is accepted and doesn't crash | Window parameter acceptance |
+| ewma_window rejects non-scalar / non-finite / < 1 values | Entry validation: NA/NaN/0/negative/Inf/character/length-2/logical → clean error; fractional ≥ 1 accepted |
+| error load parameters affect error-load exclusions | `error.load.*` plumbing |
+| imperial units (HEIGHTIN, WEIGHTLBS) are converted and processed | Imperial conversion |
+| LENGTHCM param is accepted and processed | LENGTHCM acceptance |
+
+---
+
+## test-child-edge-cases.R
+
+Minimal, degenerate, and boundary-condition data.
+
+| Test | What it verifies |
+|------|------------------|
+| single subject | Runs on 1 subject |
+| single measurement per param | 1 HT + 1 WT → valid output |
+| exactly 2 measurements per param | 2 per param → valid output |
+| all-NA measurements | All NA → all `Exclude-Missing-Info` |
+| mix of NA and valid | NAs get Missing-Info, valid values get real codes |
+| same-day identical measurements | Detected and marked |
+| negative agedays | → `Exclude-Missing-Info` |
+| HEADCM > 5 years; HEADCM ≤ 5 years | >5y `Exclude-HC-Out-of-Range`; ≤5y cleaned |
+| single extreme WT / HT / HC | Each excluded as population-implausible (`Exclude-C-Hard-Limit` Detailed) |
+| mix of data-rich and data-sparse subjects | Both handled |
+| carried-forward values | Detected |
+| deterministic results | Same input → same output (seed-independent) |
+
+---
+
+## test-child-et.R
+
+Child Evil Twins on a deterministic fixture (the real ET membership coverage — `test-child-algorithms.R` Tests 5–7 only assert "excluded somehow").
+
+| Test | What it verifies |
+|------|------------------|
+| Evil-Twins membership matches expected | Per-row `Exclude-C-Evil-Twins` membership (Detailed) |
+| per-pattern invariants | Pattern-level invariants on the fixture |
+| HC interior step is cleaned, not out-of-range | HC interior step within range is cleaned, not `Exclude-HC-Out-of-Range` |
+
+---
+
+## test-child-birth-ewma2.R
+
+Birth HT/HC EWMA2 changes (Steps 15/16).
+
+| Test | What it verifies |
+|------|------------------|
+| Change 4: extreme non-birth value in a 3-value HT/HC SP with a birth is caught | Birth now participates in Step 15 for exactly-3-value SPs |
+| Change 4: a plausible 3-value HT/HC SP with a birth is left fully Include | No over-exclusion on the plausible companion |
+| Change 2: isolated low uncorrected birth WT kept / excluded by band | Kept when `|z|+rise ≤ 7`, excluded when `> 7` |
+
+---
+
+## test-child-corroboration.R
+
+| Test | What it verifies |
+|------|------------------|
+| GA correction is gated on corroboration of prematurity | Correction applied only with a corroborating early weight or same-day low height/HC |
+| HT/HC confirm-correction: HC corroborates only as last resort, capped at 3.5 z | HC may confirm a correction (when low and within 3.5 z of the weight) only with no early-weight and no confirming-HT corroboration; a confirming HT overrides a bad HC; the 3.5 cap blocks an otherwise-low HC over a far-lower weight |
+| UER3: a clean unit-error 2-group SP drops the unit-error block | UER3 2-group selection drops the unit-error values |
+
+---
+
+## test-child-unit-error-range.R
+
+The default-ON informational `unit_error_range` output column and its internal helpers.
+
+| Test | What it verifies |
+|------|------------------|
+| column is present and logical by default | `unit_error_range` present, logical |
+| `unit_error_range = FALSE` omits the column | Opt-out path |
+| excluded-from-cleaning rows are FALSE | `Exclude-Missing-Info` / `Exclude-HC-Out-of-Range` rows never flagged |
+| `.unit_error_range_flag` flags WEIGHTKG unit-error magnitudes | WT band math |
+| `.unit_error_range_flag` flags HEIGHTCM unit-error magnitudes | HT band math |
+| `.compute_unit_error_range` returns FALSE for excluded/NA-age rows | Excluded / NA-age handling |
+| HEADCM is evaluated through the 5y cleaning range | An inch-valued HC is flagged at 700, 1500, and 1826 days; a plausible HC is not; no `NA` |
+
+---
+
+## test-exclusion-code-crosswalk.R
+
+Locks the Detailed→Summary crosswalk directly (guards the silent-NA-factor class: a new internal code with no crosswalk entry fails here). Runs a syngrowth subset + constructed rows guaranteeing shared/child/adult folds.
+
+| Test | What it verifies |
+|------|------------------|
+| every output row has non-NA Detailed and Summary codes | No silent NA factor levels |
+| every observed Detailed code is in the canonical crosswalk | Detailed codes all mapped |
+| Summary equals the canonical fold of the Detailed code, every row | Each Summary == its canonical fold |
+| every observed Summary code is a valid Summary factor level | Summary ∈ the 14 levels |
+| crosswalk coverage: shared, child, and adult folds are all exercised | All three fold families hit |
+
+---
+
+## test-adult-clean.R
+
+64 unit tests calling `cleanadult()` directly (via `growthcleanr:::`), organized by step. **224 assertions.** Covers PIV (1H/1W incl. BMI-PIV), minimal/edge cases, Weight Cap (4W), same-day (9H/10W), Evil Twins (9Wa anchor rule), Extreme EWMA (9Wb), Height Distinct (10H 2D band + 3+D window + `ht_band`), Moderate EWMA (11Wb), 1D (13, incl. BMI limits + custom limits, the no-BMI height minimum being equal at loosest and looser, and a single-value height kept when any same-day BMI is in range), Error Load (14), parameter validation (incl. invalid and non-scalar `permissiveness` → clean error, not a length-mismatch crash; and hostile setting overrides — NA / non-finite / non-scalar / wrong-type `overall_ht_min` / `allow_ht_gain` / `repval_handling` etc. → clean type errors, not scalar-`if()` crashes), output structure, repeated values (2W), 2D ordered/non-ordered weight (11Wa/11Wa2), cap influence, the full-fixture regression (against `inst/testdata/adult-gc-test-ALL-PHASES.csv`, 1508 rows; the WT and HT rows carrying expected codes are compared), imperial units, mean height (computed from finally-included heights only, populated on excluded height rows, `NA` when no height is included), multi-subject isolation, the permissiveness framework (4 levels + overrides + `allow_ht_gain`/`mod_ewma_f`/`allofus15` effects), and `permissiveness_presets()` completeness.
+
+---
+
+## test-adult-cutpoint.R
+
+Routing at `adult_cutpoint`, the adult-cutpoint advisory, and adult-specific input handling, all end-to-end through `cleangrowth()`. **24 assertions.**
+
+| Test | What it verifies |
+|------|------------------|
+| all-adult (>=18y) data with no sex value is not auto-routed | At the default cutpoint (20), 18-20y rows stay pediatric: the advisory warning fires, then the run stops because no pediatric row has a usable value in the sex column |
+| `adult_cutpoint = 18` routes the same data to the adult path | Advisory silent; all 6 rows returned (adult rows are cleaned without a sex value) |
+| advisory fires when the default is left in place | All-adult 18-20y data with a sex value: advisory fires and the rows are cleaned by the child algorithm, not set aside |
+| an explicit `adult_cutpoint` silences the advisory | Both `adult_cutpoint = 20` and `adult_cutpoint = 18` |
+| one sub-18y measurement suppresses the advisory | Data that is not all-adult gets no advisory |
+| NA-age rows are ignored for the advisory | Every row with a known age is >= 18y, so the advisory still fires |
+| a subject's routing is independent of the rest of the dataset | An 18-20y subject gets identical per-row results cleaned alone or together with a 5-7y subject |
+| adult HEADCM and LENGTHCM | Adult HEADCM -> `Exclude-HC-Out-of-Range` with `unit_error_range = FALSE`; adult LENGTHCM keeps its submitted label, has `gc_internal_param = HEIGHTCM`, is included, and takes part in height cleaning (a 120 cm height is excluded against it); weights unaffected |
+| missing-column error names the missing role | A missing sex column gives `e.g. sex = "your_sex_column"` plus the note that the value may be blank or NA for adults; a missing measurement column names `measurement` and omits the sex note |
+| sex-less pediatric rows suggest `adult_cutpoint = 18` only when appropriate | With adult rows present, the pediatric rows are set aside and the warning carries the suggestion when every pediatric row is >= 18y, not when one is younger; with no adult rows, the stop carries it |
+
+---
+
+## test-adult-et.R
+
+Adult Evil Twins anchor rule (Adult Step 9Wa), the adult-side companion to `test-child-et.R`.
+
+| Test | What it verifies |
+|------|------------------|
+| flanked over-the-limit weight pair triggers Evil Twins | Anchored pair fires |
+| single interior weight spike is ceded to EWMA | Lone interior spike not ET |
+| single end weight spike is ceded (no anchor before it) | End spike not ET |
+| does not fire with fewer than 4 eligible weights | `n ≥ 4` requirement |
+| can fire with exactly 4 eligible weights | Boundary of the requirement |
+| fires for sex = NA adults (averaged CSD fallback) | sex=NA path uses M/F-averaged CSD |
+| adult CSD reference includes an M/F-averaged sex = NA row | Reference table has the averaged row |
+
+---
+
+## test-checkpoint.R
+
+Checkpointing via `cleangrowth(checkpoint_dir = ...)` (the folded interface) plus the deprecated `cleangrowth_checkpoint()` shim.
+
+| Test | What it verifies |
+|------|------------------|
+| cleangrowth(checkpoint_dir=) is identical to a single-pass run | `exclude`, `tbc.sd`, and every shared column match a plain `cleangrowth()` run |
+| default run starts fresh: stale checkpoints removed, result correct | `checkpoint_resume = FALSE` clears prior files; result matches a plain run |
+| 1/2 sex stop fires before any checkpoint is cleaned | Sorted 1/2 data stops with no checkpoint file written; a dataset that also has 0s runs even if one checkpoint holds only 1s and 2s |
+| checkpoint_resume = TRUE reuses prior checkpoints | Completed checkpoints skipped on resume; a fresh run overwrites |
+| resuming with changed data warns in user terms and the summary adds up | Rows not in the checkpoint files: warning with no internal function name, `exclude` NA, input values kept, summary "No result" line |
+| resuming with changed data keeps input values with character ids and extra columns | Same with character ids and a carried-through column |
+| explicit checkpoint_size over the checkpoint cap is increased with a warning | Explicit oversized `checkpoint_size` is increased to stay within the cap (9999 checkpoints; lowered in the test), with a warning; all rows returned |
+| checkpoint_size and batch_size are independent knobs | `batch_size < checkpoint_size` still equals the single-pass run |
+| re-widen (semi-wide) output under checkpoint equals non-checkpoint | Reshape happens once around the checkpoint loop |
+| carry-through (extra long columns) under checkpoint equals non-checkpoint | Extra non-growthcleanr columns are reattached, appended after the gc columns, row-for-row identical to the non-checkpoint run |
+| all-adult (explicit cutpoint 18) cleans identically checkpoint vs non-checkpoint | The `adult_cutpoint` is finalized once in the outer branch and forwarded to checkpoints, so an all-adult (>= 18y) dataset at `adult_cutpoint = 18` cleans as adults under both modes (no divergence/crash) |
+| consolidated input warning is identical checkpoint vs non-checkpoint | One dataset-wide warning (set-aside bullets + id notice), byte-identical to the non-checkpoint run — not fragmented per checkpoint with per-checkpoint denominators |
+| deprecated cleangrowth_checkpoint() shim warns and forwards | Emits a deprecation warning; result equals the folded interface |
+| cleangrowth_checkpoint_combine() re-combines a completed run in id order | Standalone re-combine of persisted checkpoint files; `id_order = data$id` restores input order, `exclude` matches the finalized run per id |
+| cleangrowth_checkpoint_combine() with id_order = NULL returns all rows in checkpoint order | No reorder requested; every input id present exactly once |
+| cleangrowth_checkpoint_combine() warns on id_order ids absent from the files | Unmatched id → plain-language warning + one NA-filled row |
+| cleangrowth_checkpoint_combine() errors on a missing directory | `checkpoint_dir` does not exist → clean error |
+| cleangrowth_checkpoint_combine() errors when no checkpoint files are present | Empty directory (no `checkpoint_NNNN.rds`) → clean error |
+| cleangrowth_checkpoint_combine() honors quietly / verbose / log_file | `quietly` silent; default prints combine/done; `verbose` prints per-file progress; `log_file` receives the log |
+| mean_ht = TRUE is returned under checkpointing, matching a single run | The `mean_ht` column reaches every checkpoint and matches a plain run |
+| default mean_ht: same result under checkpointing, with and without adult rows | Child-only data has no `mean_ht` column under checkpointing; with mixed data every row has it, even when some checkpoints hold only children, and it matches a single run |
+| temporary checkpoint files are removed when a run stops with an error | The temporary checkpoint folder is gone after a run that fails once its files are written |
+| a kept checkpoint folder is not removed when a run stops with an error | Files in a user-named `checkpoint_dir` remain after a failed run |
+| every cleangrowth() argument is forwarded to checkpoints or deliberately not | Each formal of `cleangrowth()` is either passed to the per-checkpoint call or on an explicit not-forwarded list, so a new argument cannot be silently dropped |
+
+---
+
+## test-utils.R
+
+Post-cleaning utilities (outside the algorithm). **524 assertions** (loop-heavy).
+
+| Test group | What it verifies |
+|------|------------------|
+| recode_sex (defaults / custom / in place) | 0/1 → 1/2 recode and custom mappings; in-place recode does not recode twice |
+| ext_bmiz sex coding | Stop on numeric sex (also as text or factor) unless the values are both 1 and 2 and no others; count warning for missing/unrecognized sex at ages 24–240 months; logical `sex` not read as a code; 1/2 and text codes give the same results; single-sex M or F silent |
+| ext_bmiz existing output columns and ages near 24 months | Warns and overwrites existing output columns without changing the input; count warning for rows at about 729–730 days |
+| longwide (defaults / extra cols / keep-unmatched / other codes / errors) | Long→wide reshape, `extra_cols` match logic, `keep_unmatched_data`, `inclusion_types`, duplicate-id error |
+| longwide sex and param parsing | Sex read like `cleangrowth()` (M/F, words, `sex_coding`, remapped column) and output as M/F, with a warning on missing/unrecognized sex; 1/2 stop and all-1 warning under the default coding, checked before rows are filtered; all-male data through `simple_bmi()` and `ext_bmiz()` silent; param read like `cleangrowth()` (`param_coding`, imperial → metric, LENGTHCM as height, HC dropped, unrecognized params warned) |
+| simple_bmi | `wt / (ht·0.01)²` |
+
+---
+
+## test-visit-date-agedays.R
+
+Fractional `agedays` is cleaned as whole days but returned as submitted, with the whole-day value in `gc_internal_agedays` (`internal_detail`). Computing `agedays` from a date of birth plus a visit date (data-frame style). Covers route resolution (`agedays` column wins when present; `age_source = "dates"` forces the date route; supplying both an `agedays` column and dates uses `agedays` silently, no warning), the both-required rule for *computing* ages from dates (a lone date column with no `agedays` column errors), the parse-only path (a lone `visit_date` or `dob` alongside an `agedays` column is parsed and surfaced as `gc_internal_visit_date`/`gc_internal_dob` under `internal_detail` without driving ages, and is gated behind that flag), and the expanded set of accepted text-date formats: order-free year-first numeric (`2013-03-04`, `2013/03/04`, `20130304`) and English spelled-month (`03mar2013`, `March 15, 2024`), plus ambiguous numeric day/month (`3/4/2013`) only when `date_order` is set. Also covers the anti-misparse guards — one format class per run (jointly across both columns), four-digit `19xx`/`20xx` years only (two-digit and out-of-range rejected), English-locale-only month names, and pattern-based classification so a content-unambiguous `25/12/2013` still needs `date_order` — rejection of unrecognized/numeric (epoch-ambiguous) columns, the `gc_internal_dob`/`gc_internal_visit_date` audit columns under `full_detail`, blank/`NA` dates yielding a missing age, and a visit date before the date of birth.
+
+---
+
+## test-carry-through.R
+
+`carry_through` for long input: columns growthcleanr does not consume as role columns are parked and returned appended after the growthcleanr columns, in their original order with values and types intact. Covers reserved-name collisions (the user's column returned as `userinput_<name>`, with a warning; a user column named `line` carried unchanged), `carry_through = FALSE` restoring the drop-all behavior, `dob`/`visit_date` echoing back this way, the no-`id` path (reattachment keys on input row position, not the user's id), carried columns named like a remapped role column (e.g. a column `subjid` when `subjid = "patid"`) returned with the user's values in single and checkpointed runs alike, a role column named `line` returned intact alongside carried columns, and the guarantee that the input table is not modified.
+
+---
+
+## test-consolidated-input-warning.R
+
+The consolidated input warning (Option B) and the three Class-2 defect warnings it introduced. Covers: clean data with ids is silent; `measurement == 0`, negative `measurement`, and negative `agedays` each warn and are set aside (per-parameter-group N/% for the measurement value problems, all-rows N/% for age); several issues collapse into a single `warning()` whose lead line counts the **union** of distinct set-aside rows (not the sum); a missing `id` alone yields only the `Generated ids` section (no `Unusable data` lead line) with the tie-breaking explanation; and the unrecognized-sex bullet leads with the `sex_coding` fix.
+
+---
+
+## test-semiwide-input.R
+
+`input_format = "semi_wide"`: one row per visit, one column per parameter, reshaped to canonical long before cleaning. The keystone is equivalence -- the same measurements submitted semi-wide and long must produce identical exclusion codes, checked on a hand-built fixture and a syngrowth slice. Also covers `semiwide_cols` remapping, structural column remapping, empty cells versus a literal `0`, same-day duplicates resolving as same-day extraneous values, the missing-weight/height warnings (the head-circumference-absent warning was removed 2026-07-24), the date route, run-to-run determinism, the error catalog, and long output returning the user's id under its own name with growthcleanr's number in `gc_internal_id`, the long-only length rule (length.adjust is rejected in semi-wide input; a `LENGTHCM`/`LENGTHIN` value at any age gets default handling, matching a length column mapped to `HEIGHTCM`, including at 19 years and at days 729 and 730).
+
+---
+
+## test-wide-input.R
+
+`input_format = "wide"`: one row per subject, repeated observation blocks marked by a `_N` column suffix, reshaped to canonical long before cleaning. The keystone is again equivalence -- the same measurements submitted wide and long must produce identical exclusion codes -- checked on a 40-subject syngrowth slice and on a hand-built ragged fixture; a companion test asserts wide and semi-wide input agree on the same measurements, and the hand-built case also pins the minted-id emission order (subject, block, then weight -> height -> head circumference). Also covers block discovery from the data (occupied cells only, so ragged subjects need no padding), default parameter-named prefixes, `wide_cols` and structural/age-prefix remapping, imperial and length prefixes (pounds/inches clean identically to the metric equivalents while `param`/`measurement` come back verbatim), two blocks on one day resolving as same-day extraneous values, the date route (`dob` + `visit_date_N`), a value in a block with no age flagged `Exclude-Missing-Info`, the four strictness warnings (block-numbering gap, `max_blocks` exceeded, non-monotonic block ages, a subject on more than one row), the missing-parameter warnings, run-to-run and row-order determinism, the input table left unmutated, the error catalog (no block columns, prefix with no `_N` columns, unrecognized parameter, two parameters sharing a prefix, missing subjid, no age source, supplied `id`, leading-zero block collision), the round-trip spec the re-widened output layer consumes, and the long-only length rule (length.adjust rejected; a `LENGTHCM`/`LENGTHIN` value at 2 years or older gets default handling, matching a prefix mapped to `HEIGHTCM`).
+
+---
+
+## test-semiwide-output.R
+
+`output_format = "semi_wide"`: the submitted table is returned with the requested growthcleanr columns slotted in beside each value column. The keystone closes an equivalence chain in both directions -- `long -> long` == `semi -> long` == melt-back of `semi -> semi` -- on a hand-built fixture and on a syngrowth slice with same-day duplicates preserved as separate visit rows; the melt-back is written in the test rather than reusing package code, so an adapter bug cannot cancel itself out. Also covers echo fidelity (`identical()` per submitted column, input not mutated, verdict placed immediately right of its value column), `widened_emit` control and its switch-gated errors, imperial conversion reported through `gc_internal_meas`/`gc_internal_param`, the two-directional length offset on long-format fixtures (both directions and the 729/730-day boundary checked through `sd.orig`, conversion-before-offset, `gc_internal_meas` left at the entered metric value, adult `LENGTHCM` relabeled `HEIGHTCM` but not offset, missing ages left alone; length.adjust in semi-wide input is no longer supported -- see the long-only length rule under the input files), `carry_through` in mirror mode, the three scope errors, and determinism.
+
+---
+
+## test-wide-output.R
+
+`output_format = "wide"`: the submitted subject rows are returned with the requested growthcleanr columns slotted in beside each value block column (`exclude_wt_1` right of `wt_1`) -- direct long -> wide, echoing the input table rather than rebuilding it. The keystone closes the same both-directions equivalence chain as semi-wide output -- `long -> long` == `wide -> long` == melt-back of `wide -> wide` -- on a hand-built ragged fixture and on a syngrowth slice (blocks built from distinct visit days); the melt-back is written in the test. A separate weight-only test exercises **same-day extraneous values at scale** -- injected duplicate same-day weights become consecutive same-`agedays` blocks (the case the WT+HT keystone must dedupe away) and are asserted to resolve (>= 8 `Exclude-Extraneous`) and round-trip through wide output unchanged. Also covers echo fidelity (`identical()` per submitted column, input not mutated, verdict immediately right of its value column, dropping the generated columns reproduces the input), ragged blocks getting `NA` verdicts, `widened_emit` control including the wide-specific per-block `gc_internal_agedays_N` level (one column per block, not per measurement, `NA` for absent blocks) and switch-gated errors, imperial values echoed verbatim while reported in metric through `gc_internal_meas`/`gc_internal_param`, `carry_through` in mirror mode, same-day blocks resolved as extraneous values with verdicts landing on their own columns, the scope errors (long/semi-wide -> wide refused) and the pre-cleaning name collision, and determinism.
+
+---
+
+## test-growthcleanr-app.R
+
+The bundled Shiny app: that it ships and loads, plus the app's mapping-stage guards that reject bad column mappings before cleaning runs. The mapping-guard tests exercise the app's helper logic directly (not a live browser session).
+
+| Test | What it verifies |
+|------|------------------|
+| growthcleanr_app() is exported with a stable signature | The launcher is exported with the expected formals |
+| the Shiny app directory ships and app.R parses | The app directory is installed and `app.R` parses (guards the historical package/path mismatch + syntax breakage; CRAN-safe) |
+| wide: a wrong age prefix is rejected at mapping, not deferred to cleaning | A mis-specified wide age prefix errors at the mapping step, not downstream in cleaning |
+| sex-coding auto-detect recognizes default pairs and skips 1/2 | Auto-detect recognizes the default sex-code pairs and declines the ambiguous 1/2 coding |
+| value_freq / mapped column reactives track the sex and param selection | The value-frequency and mapped-column reactives update with the selected sex/param columns |
+| semi-wide: custom columns map, measurement columns keep their names | Custom semi-wide column mappings apply while the measurement columns retain their names |
+| semi-wide: an all-miss measurement mapping fails at Step 2, not at cleaning | A measurement column that maps to all-missing is caught at the mapping step (Step 2), not at cleaning |
+| hostile-input guard helpers catch the target problems and pass clean input | The app's hostile-input guard helpers flag the target problems and pass clean input through |
+| long: a non-numeric measurement column is rejected at mapping | A non-numeric long-format measurement column errors at mapping |
+| long: mapping the same column to two fields is rejected at mapping | Mapping one column to two roles errors at mapping |
+| long: a valid numeric mapping still succeeds (guards do not over-reject) | A valid long-format numeric mapping is accepted (guards do not over-reject) |
+| long: results keep the user's names, including role-like unmapped columns | A full long run returns the user's column names, and unmapped columns named like growthcleanr's stay unchanged |
+| semi-wide: results keep the user's names | A full semi-wide run returns the user's column names plus `exclude_<column>` |
+| wide: results keep the user's names | A full wide run returns the user's column names |
+| keep-only trim keeps the mapped columns under the user's names | The keep-only option keeps exactly the mapped columns, under the user's names |
+| the exclusion summary does not count the user's own exclude_ columns | A user column named `exclude_reason` is not pooled into the summary, in all three formats |
+| the format can be chosen before or after the file is loaded | Mapping works with either order in Step 1 |
+| date samples skip blank and no-digit values and use a wide block's first usable column | The sample-date helper returns the first usable value for a column or wide block, and nothing when there is none |
+| exact standard measurement names pre-select the column and its unit | `WEIGHTLBS`, `HEIGHTIN`, `HEADCM` and `HEADIN` pre-select the column and the matching unit in semi-wide and wide; custom names are not guessed |
+| a new file, format or mapping clears results, notes and the stale mapping | Re-applying a mapping clears results and notes; a new file or format also clears the mapping |
+| a failed run does not leave the prior run's results available | After a run stops, no results remain from the earlier run; stating the date order lets the same file run |
+
+---
+
+## Coverage Gaps
+
+Summary of the standing gaps:
+
+### Known gaps
+
+- **CF rescue rule (deltaz/nextz):** covered by constructed directional tests (decline→rescue, jump→exclude, whole-string, end-of-series age rule) plus regression counts; the boundary values (sum = 1, `cf_deltaz` = 1.5/0.5/1, the 13y age split) are not each pinned by a dedicated test.
+- **Child Step 17 HC velocity:** no test asserts an HC `Exclude-C-Abs-Diff`; the whole HC velocity path is covered only via frozen counts.
+- **Child Steps 15/16 middle/first/last EWMA2 variants:** only the birth-WT and 3-value-SP paths are constructed; middle/first/last value rules are covered indirectly via regression counts.
+- **Child Step 19 (pairs/singles):** frozen count only (currently 0 in the regression subset); pair-split and single-branch boundaries untested.
+- **Child Step 13 EWMA-based SDE resolution / robust SP-median drop:** only whole-day identicals are constructed.
+- **Adult:** error load with the −5 exponent, and very-low/high UW scaling edge cases, are not covered.

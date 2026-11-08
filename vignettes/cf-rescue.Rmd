@@ -1,0 +1,202 @@
+---
+title: "Carried-forward value rescue"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Carried-forward value rescue}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\usepackage[utf8]{inputenc}
+---
+
+**Purpose.** This vignette is the reference for **carried-forward (CF) value rescue** — how growthcleanr detects measurements copied forward from a prior day and decides which of them to return to `Include`. CF handling is **Child Step 6** of the child algorithm; for where the step sits in the overall pipeline, see `vignette("child-algorithm")`. For the z-score machinery the rule relies on (the CSD score `sd.orig`), see `vignette("algorithm-functions")`.
+
+**Scope.** CF rescue is part of the **child** algorithm only. Adult rows are never CF-detected (they are labeled `"Adult"` in the diagnostic columns). The child and adult parts of a subject's data are cleaned independently. A carried-forward string that ends just below `adult_cutpoint` has no next value on the child side, so it is judged by the end-of-series rule (see [The standard rescue rule](#the-standard-rescue-rule)). Adults have no carried-forward step; for how the adult algorithm handles repeated values, see "Repeated Value (RV) Handling" in `vignette("adult-algorithm")`.
+
+---
+
+## What a carried-forward value is
+
+A carried-forward (CF) value is a measurement that is pulled forward from a prior measurement rather than being measured on the day of the encounter. Left in the data, such values distort trajectories, affecting both cleaning and analysis.
+
+growthcleanr attempts to detect and exclude these by identifying values exactly equal to the measurement on the immediately prior day for the same subject and parameter, referred to below as "consecutive identical values" or "potential CFs". Truly independent consecutive identical measurements occur, especially when measurements are rounded, estimated, or taken at short intervals, and in older children or in children with poor growth.
+
+We first identified CFs as a problem when we saw children with strings of identical values over years followed by a quick rise. Even when measurements are at short intervals, if measurements are taken with recommended precision (nearest 0.1 cm or 0.1 kg, with more precision in young infants), inherent variation in measurement means that most consecutive measurements will not be identical. A substantial number of CFs can cause significant systematic bias. Therefore, in earlier versions of growthcleanr, the algorithm was aggressive and removed all potential CFs. However, this results in overexclusion of true consecutive identical measurements, which may be common in datasets with features listed above (many rounded or estimated measurements, short intervals, older children, or children with poor growth). Overexclusion can also lead to bias.
+
+Distinguishing between independent consecutive identical measurements and carried-forward values is more difficult in some circumstances than identifying implausible values. We believe this current method for likely CF identification is an improvement on the prior aggressive rule, but we anticipate that it may evolve with further work.
+
+Throughout this vignette, "CF" is used as shorthand for a **potential CF**: a consecutive identical value that detection has provisionally excluded (`Exclude-C-CF`) pending the rescue decision. This terminology is used primarily for historical reasons, as that is how these values have been referred to throughout development of the algorithm. A value that is **not** rescued stays excluded and is a confirmed carried-forward value; a rescued value is treated as an independent measurement.
+
+To distinguish identical independent measurements from carried-forward measurements, Child Step 6 does three things:
+
+1. **Detects** consecutive identical values and organizes them into *strings* — a string begins with a non-CF **originator** (a real measurement) and continues through the consecutive potential CFs that copy it forward. These values are provisionally excluded as CFs.
+2. **Decides** whether each string is more likely to be an independently measured consecutive identical value or a value carried forward from prior. 
+3. **Rescues** plausible strings back to `Include`, leaving implausible ones excluded as `Exclude-C-CF`.
+
+Determining criteria for rescuing potential CFs is among the most difficult tasks in automated or manual data cleaning in large part because they are dependent on practice patterns. In some datasets, carried-forward values are extremely common and can significantly impact analysis and cleaning. Rounding increases the likelihood of consecutive identical independent measurements. In other datasets, the vast majority of consecutive identical values are truly independent.
+
+| | |
+|---|---|
+| **Scope** | All child parameters (WEIGHTKG, HEIGHTCM, HEADCM) |
+| **Operates on** | Valid rows (including temporary SDEs), restricted to subject-parameter combinations that have at least one duplicate raw value |
+| **Prior step** | Child Step 5 (Temporary SDEs) |
+| **Next step** | Child Step 7 (PIV) |
+| **Exclusion code** | `Exclude-CF` (Summary, in `exclude`) / `Exclude-C-CF` (Detailed, in `exclude_detailed`) |
+| **Rescue markers** | `Rescued`, `Rescued-All` (in the internal `cf_rescued` column) |
+| **Controlled by** | `cf_rescue` (`"standard"` default / `"none"` / `"all"`) and `cf_detail` (diagnostic columns) |
+| **Code location** | CF logic is inline in `cleanchild()` in `R/child_clean.R` |
+
+---
+
+## Rescue modes
+
+The `cf_rescue` argument selects one of three modes:
+
+- **`"standard"`** (default) — decide each CF string on its **last** CF using the deltaz/nextz rule (below) and apply that decision to the whole string.
+- **`"none"`** — no rescue. Every detected CF stays `Exclude-C-CF`.
+- **`"all"`** — every detected potential CF is rescued, including one that shares a day with another non-CF Include. This preserves the caller's "treat consecutive identical values as plausible" intent; any resulting multiple-Include same-day groups are resolved later by Child Step 13 (final SDE resolution). Some consecutive identical values may be excluded later by other steps.
+
+**Caution with `"all"`.** Keeping every consecutive identical value can lead to real measurements being excluded. For example, a boy has a real height of 100.5 cm at 3.5 years; that value is copied forward at 4, 4.5, 5, and 5.8 years, and a real height of 119.4 cm is recorded at 6 years (z = recentered z-score, `tbc.sd`):
+
+| Age (y) | Height (cm) | z | `"standard"` | `"all"` |
+|---|---|---|---|---|
+| 3.5 | 100.5 | 0.19 | `Include` | `Include` |
+| 4.0 | 100.5 | −0.64 | `Exclude-CF` | `Include` (`CF-R`) |
+| 4.5 | 100.5 | −1.41 | `Exclude-CF` | `Include` (`CF-R`) |
+| 5.0 | 100.5 | −2.07 | `Exclude-CF` | `Include` (`CF-R`) |
+| 5.8 | 100.5 | −3.03 | `Exclude-CF` | `Include` (`CF-R`) |
+| 6.0 | 119.4 | 0.49 | `Include` | `Exclude-Pattern` |
+
+Under `"standard"`, the four copies are excluded and both real heights are kept. Under `"all"`, the copies are kept, so the child appears to stop growing for about 2.3 years. The copied heights are close enough together that the consistently decreasing z-scores seem plausible, and the real 6-year height is then excluded because it no longer fits the decreasing z-score trajectory.
+
+Carried-forward values are very challenging to address, and no mode is right for every patient or dataset.
+
+---
+
+## Detection
+
+### Which subject-parameters are considered
+
+Detection runs only on a (subjid, param) combination that has both:
+
+- more than one valid measurement (`.child_valid(data.df, include.temporary.extraneous = TRUE)`), and
+- at least one duplicate raw value (`uniqueN(v.orig) < .N`).
+
+Subject-parameters with no duplicates skip CF detection entirely.
+
+### Identifying CFs
+
+For each qualifying (subjid, param):
+
+1. Count values per (subjid, param, agedays) — days with multiple values (same-day extraneous, SDE) are identified.
+2. For each unique ageday, look up the prior unique ageday.
+3. Take the prior ageday's value **only if that day had exactly one measurement**. If the prior day had multiple values, CF matching for the current day is disabled.
+4. A row is a CF when its raw value exactly equals that prior single value — **exact equality, no tolerance**.
+
+Detected CFs get `exclude = "Exclude-C-CF"`.
+
+**Why only single-value prior days?** If the prior day had an SDE group, one of its values could coincidentally equal the current measurement without any copy-forward taking place. Restricting to single-value prior days avoids those false positives (at the cost of missing some CFs), and avoids resource-intensive, low-yield evaluations.
+
+### Building strings
+
+Within each (subjid, param), in `(agedays, internal_id)` sort order:
+
+- **originator** — an `Include` row whose immediate next row is a CF.
+- **string number** — assigned at each originator and propagated forward through its consecutive CFs.
+- **`seq_win`** — position within the string: `0` for the originator, `1, 2, 3, …` for the CFs.
+- **originator z-score** — the originator's `sd.orig` (the un-recentered CSD score, taken *before* gestational-age correction), propagated forward to the string's CFs.
+- **same-day eligibility** — a CF that shares its day with any `Include` (`ageday_has_include == TRUE`) never receives a string number and is **not** eligible for rescue; rescuing it would create two Includes on the same day. (Temporary SDEs do not count as an Include here, so they do not block rescue.)
+
+---
+
+## The standard rescue rule
+
+Overall, rescue is designed to identify children for whom age, measurement interval, or growth trajectory make it plausible that a consecutive identical value is an independent measurement that happens to be identical, rather than a carried-forward value. We explored incorporating rounding into this rule but did not identify a satisfactory method to include it.
+
+Standard mode evaluates only **eligible** CFs (`seq_win > 0` and not sharing a day with an Include). Two quantities drive the decision, both computed on the un-recentered score `sd.orig`:
+
+- **`cf_deltaz`** = |CF z − originator z| (≥ 0) — how far the carried value has drifted from the real value it copies.
+- **`cf_nextz`** = signed (next − this) change from the CF to the **next Included value** within the subject-parameter — negative when the trajectory continues downward past the CF, positive when it turns back up.
+
+### Decide on the last CF, apply to the whole string
+
+The decision is made on the string's **last** CF (highest `seq_win`) and applied to every CF in the string: if the last CF is not rescued, the whole string stays excluded. Because all values in a string are identical while the child's expected z-score drifts monotonically with age, the last CF carries the largest `cf_deltaz` and the largest `cf_deltaz + cf_nextz`. If it clears the rule, every earlier CF in the string would too — so deciding on the last CF is the conservative choice and keeps a string from being split into rescued and non-rescued pieces.
+
+### The thresholds
+
+The last CF is rescued when:
+
+- **It has a next Included value** (`cf_nextz` is not `NA`):
+
+  `cf_deltaz + cf_nextz <= 1`  **and**  `cf_deltaz <= 1.5`
+
+- **It has no next value** (end of the series) — decide by the CF's age:
+
+  `cf_deltaz <= 0.5` if `agedays < 13 * 365.25`, else `cf_deltaz <= 1`
+
+All comparisons use `<=`. Rescued values are returned to `Include`.
+
+---
+
+## Why this rule
+
+- **Detection is exact equality of raw measurements.** 121.92 is not considered identical to 121.9200001.
+
+- **Trajectory shape, not distance alone.** A consecutive identical value is plausible when it lies on a genuinely flat or declining trajectory (stagnant growth) and implausible when it is a flat notch of significant length in an otherwise rising trajectory (a copied value the child has since grown past). The sum `cf_deltaz + cf_nextz` captures this: it equals twice how far the carried value's z-score sits below the midpoint of its originator's and its next real value's z-scores (which coincides with the straight line joining them when the CF falls at the midpoint in age). The sum is small or negative for a smooth decline or true stagnation (keep) and large and positive for a deep notch that then recovers (a true CF).
+
+- **The `cf_deltaz <= 1.5` cap** prevents a single large carried drop from being rescued on the strength of a steeply rising next value alone. Intentionally, a very large drift in z-score from the originator cannot be rescued no matter how far the trajectory later climbs.
+
+- **The age split at 13 years (end of series).** With no next value to define the trajectory's direction, the rule falls back to how far the CF has drifted, with a looser allowance for adolescents (whose z-scores drift more) than for younger children.
+
+- **Originator z-score is taken before gestational-age correction** because it sets the expected scale of random variation, and GA correction is applied uniformly to all of a preterm subject's values in a string, so it does not change the difference between them.
+
+- **`"all"` mode ignores the same-day-Include collision** so that the caller's intent ("treat CFs as plausible") overrides the usual rule against multiple Includes per same-day group; that group is then resolved by Child Step 13 on its merits.
+
+---
+
+## Interaction with same-day extraneous values
+
+Child Step 6 shares data with the same-day extraneous (SDE) machinery in two ways:
+
+- **Temporary SDE re-evaluation.** After CF detection, any rows still flagged `Exclude-C-Temp-Same-Day` may have a stale Step-5 selection now that some same-day Includes have become CFs. Step 6 resets those rows to `Include` and re-runs the temporary-SDE selection (`identify_temp_sde()`, the same routine used in Child Step 5) so the choice accounts for the CF removals.
+
+- **SDE-Identical values.** Rows flagged `Exclude-C-Identical` in Early Child Step 13 would break the positional string logic (which relies on adjacent-row comparisons). They are set aside during string construction and restored afterward, then re-sorted by `(subjid, param, agedays, internal_id)`.
+
+---
+
+## Diagnostic output (`cf_detail = TRUE`)
+
+Setting `cf_detail = TRUE` adds six columns to the output. The first three describe CF status and the rescue decision; the last three are **development aids** for tuning CF logic.
+
+| Column | Values / meaning |
+|---|---|
+| `cf_status` | `"Orig"` (string originator), `"CF-R"` (carried forward and rescued (not excluded as CF); a later step may still exclude it), `"CF-NR"` (carried-forward, not rescued), `"CF-E"` (same-day-extraneous potential CF — shares a day with an Include, never rescue-eligible; in `cf_rescue = "all"`, same-day CFs are not excluded at this step and are labelled `CF-R`, with `cf_deltaz` NA; Child Step 13 then chooses one value for the day, so such a row can end as `Exclude-Extraneous`), `"Not-CF"` (no CF relationship), `"Adult"` (adult row) |
+| `cf_deltaz` | \|CF z − originator z\| for positionally-detected CFs; `NA` for Orig, Not-CF, CF-E, and Adult rows. The whole string is decided on its last carried-forward value; values shown on earlier rows are informational. |
+| `cf_nextz` | signed (next − this) z-change from a CF to the next Included value within the subject-parameter; populated for CF-R and CF-NR; `NA` for Orig, Not-CF, CF-E, Adult, and end-of-series rows. The whole string is decided on its last carried-forward value; values shown on earlier rows are informational. |
+| `imperial` | *(design aid)* whole/half imperial-unit flag — whole pounds for WEIGHTKG, whole/half inches for HEIGHTCM/HEADCM (tolerance 0.01 imperial unit); computed for every row; `NA` on missing-measurement and Adult rows |
+| `cf_dage_orig` | *(design aid)* day gap from a CF's originator to the CF (`agedays_CF − agedays_orig`; always positive); populated for CF-R/CF-NR (not same-day CFs in `cf_rescue = "all"`, which are labelled `CF-R` but have `NA`); `NA` otherwise |
+| `cf_dage_next` | *(design aid)* day gap from a CF to the next eligible Included value (the agedays analogue of `cf_nextz`); `NA` for Orig, Not-CF, CF-E, Adult, and end-of-series rows |
+
+To count rescued values, run with `cf_detail = TRUE` and count rows with `cf_status == "CF-R"`. In `cf_rescue = "all"`, same-day CFs are also labelled `CF-R`, so in that mode the count includes them.
+
+The `imperial` flag and the originator interval (`cf_dage_orig`) are computed only when `cf_detail = TRUE`, alongside the other diagnostic columns, and surface only through them; they do not affect the rescue decision.
+
+The internal `cf_rescued` column (values `""`, `"Rescued"`, `"Rescued-All"`) tracks the rescue outcome during processing but is not returned in the default output.
+
+---
+
+## Arguments
+
+| Argument | Default | Role |
+|---|---|---|
+| `cf_rescue` | `"standard"` | Rescue mode: `"standard"` (deltaz/nextz rule, decided per string's last CF), `"none"` (exclude all detected CFs), `"all"` (rescue all detected CFs) |
+| `cf_detail` | `FALSE` | If `TRUE`, add the six diagnostic columns above to the output |
+
+The standard-mode thresholds (`1`, `1.5`, `0.5`, and the `13`-year split) are set inline in the Child Step 6 rescue block in `R/child_clean.R`. For the full list of columns `cleangrowth()` can return, see `vignette("output")`; for the exclusion codes, see `vignette("exclusion-codes")`.
+
+---
+
+## Determinism notes
+
+- All CF sorts include `internal_id` as the final tiebreaker (`setkey(data.df, subjid, param, agedays, internal_id)` at the top of `cleanchild()`, and the same order inside the CF block and after the SDE-Identical restoration), so string construction and the "next Included value" lookup are deterministic.
+- Detection compares raw values (`v.orig`) by exact equality; the rescue quantities use `sd.orig` (the pre-GA-correction CSD score).
+- Child Step 6 does not use the designated other parameter (DOP) and does not perform age-dependent birth tiebreaking (that lives in Early Child Step 13 and Child Step 5).

@@ -1,0 +1,30 @@
+id,subjid,param,agedays,sex,measurement,target_tbc,expected_et,pattern,note
+1,et_wt_step,WEIGHTKG,120,0,6.87,0,(not Evil-Twins),interior_step,"step up that stays up; ET excludes one high inner value, EWMA gets the rest"
+2,et_wt_step,WEIGHTKG,240,0,8.69,0,(not Evil-Twins),interior_step,"step up that stays up; ET excludes one high inner value, EWMA gets the rest"
+3,et_wt_step,WEIGHTKG,360,0,16.94,6,Exclude-C-Evil-Twins,interior_step,"step up that stays up; ET excludes one high inner value, EWMA gets the rest"
+4,et_wt_step,WEIGHTKG,480,0,18.59,6,(not Evil-Twins),interior_step,"step up that stays up; ET excludes one high inner value, EWMA gets the rest"
+5,et_wt_endspk,WEIGHTKG,120,0,6.87,0,(not Evil-Twins),single_end_spike,no value after the spike -> no D anchor -> ceded to EWMA
+6,et_wt_endspk,WEIGHTKG,240,0,8.69,0,(not Evil-Twins),single_end_spike,no value after the spike -> no D anchor -> ceded to EWMA
+7,et_wt_endspk,WEIGHTKG,360,0,9.96,0,(not Evil-Twins),single_end_spike,no value after the spike -> no D anchor -> ceded to EWMA
+8,et_wt_endspk,WEIGHTKG,480,0,18.59,6,(not Evil-Twins),single_end_spike,no value after the spike -> no D anchor -> ceded to EWMA
+9,et_ht_embed,HEIGHTCM,120,0,63.77,0,(not Evil-Twins),embedded_single,single interior spike (low); one outer anchor fails -> ceded to EWMA
+10,et_ht_embed,HEIGHTCM,240,0,57.2,-6,(not Evil-Twins),embedded_single,single interior spike (low); one outer anchor fails -> ceded to EWMA
+11,et_ht_embed,HEIGHTCM,360,0,75.51,0,(not Evil-Twins),embedded_single,single interior spike (low); one outer anchor fails -> ceded to EWMA
+12,et_ht_embed,HEIGHTCM,480,0,80,0,(not Evil-Twins),embedded_single,single interior spike (low); one outer anchor fails -> ceded to EWMA
+13,et_ht_embed,HEIGHTCM,600,0,84.35,0,(not Evil-Twins),embedded_single,single interior spike (low); one outer anchor fails -> ceded to EWMA
+14,et_ht_plateau,HEIGHTCM,120,0,63.77,0,(not Evil-Twins),transient_plateau,"flat plateau flanked by normals; no inner jump -> deferred flat-pattern, ceded"
+15,et_ht_plateau,HEIGHTCM,240,0,57.2,-6,(not Evil-Twins),transient_plateau,"flat plateau flanked by normals; no inner jump -> deferred flat-pattern, ceded"
+16,et_ht_plateau,HEIGHTCM,360,0,61.3,-6,(not Evil-Twins),transient_plateau,"flat plateau flanked by normals; no inner jump -> deferred flat-pattern, ceded"
+17,et_ht_plateau,HEIGHTCM,480,0,80,0,(not Evil-Twins),transient_plateau,"flat plateau flanked by normals; no inner jump -> deferred flat-pattern, ceded"
+18,et_hc_step,HEADCM,120,0,41.68,0,(not Evil-Twins),interior_step_hc,HC step (<=3y); same as WT step
+19,et_hc_step,HEADCM,240,0,44.72,0,(not Evil-Twins),interior_step_hc,HC step (<=3y); same as WT step
+20,et_hc_step,HEADCM,360,0,54.19,6,Exclude-C-Evil-Twins,interior_step_hc,HC step (<=3y); same as WT step
+21,et_hc_step,HEADCM,480,0,55.55,6,(not Evil-Twins),interior_step_hc,HC step (<=3y); same as WT step
+22,et_wt_gate3,WEIGHTKG,120,0,6.87,0,(not Evil-Twins),gate_3_eligible,only 3 eligible -> ET count gate (>=4) blocks evaluation entirely
+23,et_wt_gate3,WEIGHTKG,240,0,14.88,6,(not Evil-Twins),gate_3_eligible,only 3 eligible -> ET count gate (>=4) blocks evaluation entirely
+24,et_wt_gate3,WEIGHTKG,360,0,16.94,6,(not Evil-Twins),gate_3_eligible,only 3 eligible -> ET count gate (>=4) blocks evaluation entirely
+25,et_wt_plat3,WEIGHTKG,120,0,6.87,0,(not Evil-Twins),sustained_3_plateau,"3-long high plateau; cascade peels two edges as ET, last high left to EWMA"
+26,et_wt_plat3,WEIGHTKG,240,0,8.69,0,(not Evil-Twins),sustained_3_plateau,"3-long high plateau; cascade peels two edges as ET, last high left to EWMA"
+27,et_wt_plat3,WEIGHTKG,360,0,16.94,6,Exclude-C-Evil-Twins,sustained_3_plateau,"3-long high plateau; cascade peels two edges as ET, last high left to EWMA"
+28,et_wt_plat3,WEIGHTKG,480,0,18.59,6,Exclude-C-Evil-Twins,sustained_3_plateau,"3-long high plateau; cascade peels two edges as ET, last high left to EWMA"
+29,et_wt_plat3,WEIGHTKG,600,0,20.21,6,(not Evil-Twins),sustained_3_plateau,"3-long high plateau; cascade peels two edges as ET, last high left to EWMA"
