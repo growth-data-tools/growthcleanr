@@ -2,14 +2,6 @@ An open-source R package that flags implausible values in longitudinal pediatric
 
 ::: {.alert .alert-info}
 **We are excited to announce the release of growthcleanr 3.0.0.**
-
-**growthcleanr 3.0.0 is now available on GitHub and is in the process of being released on CRAN**, which we expect to happen soon. Until then, `install.packages("growthcleanr")` in R will install the older version, 2.2.3. To install 3.0.0 now:
-
-```r
-install.packages("remotes")
-remotes::install_github("growth-data-tools/growthcleanr",
-                        build_vignettes = TRUE, dependencies = TRUE)
-```
 :::
 
 ## What does growthcleanr do?
