@@ -1,0 +1,258 @@
+An open-source R package that flags implausible values in longitudinal
+pediatric and adult weight, height, and head circumference data.
+
+**We are excited to announce the release of growthcleanr 3.0.0.**
+
+## What does growthcleanr do?
+
+- Infographic and fact sheet
+  ([PDF](https://growthcleanr.org/growthcleanr-fact-sheet.pdf))
+- Researcher overview
+  ([PDF](https://growthcleanr.org/growthcleanr-researcher-overview.pdf))
+
+## How to use
+
+**Install.** From CRAN, in R: `install.packages("growthcleanr")`.
+
+Source code is on
+[GitHub](https://github.com/growth-data-tools/growthcleanr).
+
+**Basics**
+
+- [Start here](https://growthcleanr.org/articles/new-start-here.md)
+- [Shiny app (graphical interface) how-to
+  guide](https://growthcleanr.org/articles/how-to-shiny.md)
+- [R interface how-to
+  guide](https://growthcleanr.org/articles/how-to-r.md)
+- Researcher overview
+  ([PDF](https://growthcleanr.org/growthcleanr-researcher-overview.pdf))
+
+**More info**
+
+- [Example R
+  scripts](https://growthcleanr.org/articles/example-scripts.md)
+- [Returning users: what’s
+  new](https://growthcleanr.org/articles/experienced-start-here.md)
+- [Tips for making the input
+  CSV](https://growthcleanr.org/articles/csv-format.md)
+- [Cleaning large
+  datasets](https://growthcleanr.org/articles/large-datasets.md)
+- [Command-line
+  driver](https://growthcleanr.org/articles/command-line.md)
+
+## Cite
+
+Citing growthcleanr helps us to track how it is used to guide further
+development and obtain further support.
+
+> Carrie Daymont, Michelle E Ross, A Russell Localio, Alexander G Fiks,
+> Richard C Wasserman, Robert W Grundmeier, Automated identification of
+> implausible values in growth data from pediatric electronic health
+> records, Journal of the American Medical Informatics Association,
+> Volume 24, Issue 6, November 2017, Pages 1080–1087,
+> <https://doi.org/10.1093/jamia/ocx037>
+
+## Documentation
+
+Full technical documentation is in the
+[Articles](https://growthcleanr.org/articles/index.md) and
+[Reference](https://growthcleanr.org/reference/index.md) menus above:
+the child and adult algorithms, configuration and output, z-scores and
+methods, utilities and testing, and the complete function reference.
+
+## About the project
+
+**Funding and contributors.** [People and
+organizations](https://growthcleanr.org/articles/contributors.md) who
+have contributed to and supported growthcleanr.
+
+**Source and license.** Open source under the MIT License. Browse or
+fork it on [GitHub](https://github.com/growth-data-tools/growthcleanr).
+
+**Related package.**
+[cdcanthro](https://CRAN.R-project.org/package=cdcanthro) calculates WHO
+and CDC z-scores and is commonly used alongside growthcleanr.
+
+## Contact
+
+Contact through
+[GitHub](https://github.com/growth-data-tools/growthcleanr/issues) or
+email: <cdaymont@pennstatehealth.psu.edu>.
+
+**Report a bug.** Provide as much detail as possible: the version and
+interface (app, R, or command-line), the code you used, the exact error
+message, the structure of your dataset, and if possible, a sample
+dataset without private data.
+
+**Suggest a feature.** We will continue improving growthcleanr as
+resources allow. Suggest new features or identify new issues you would
+like growthcleanr to address.
+
+**Collaborate.** [Email](mailto:cdaymont@pennstatehealth.psu.edu) if you
+are interested in collaborating to evaluate or improve growthcleanr.
+
+# Package index
+
+## Overview
+
+Package overview
+
+- [`growthcleanr-package`](https://growthcleanr.org/reference/growthcleanr-package.md)
+  [`growthcleanr`](https://growthcleanr.org/reference/growthcleanr-package.md)
+  : growthcleanr: a data cleaner for anthropometric measurements
+
+## Main function
+
+cleangrowth() cleans growth data. Start here.
+
+- [`cleangrowth()`](https://growthcleanr.org/reference/cleangrowth.md) :
+  Clean growth measurements (main growthcleanr function)
+
+## Other cleaning functions
+
+Other ways to run growthcleanr
+
+- [`gc_runtrial()`](https://growthcleanr.org/reference/gc_runtrial.md) :
+  Trial run of growthcleanr on a sample of your data
+- [`growthcleanr_app()`](https://growthcleanr.org/reference/growthcleanr_app.md)
+  : Run the growthcleanr Shiny application
+- [`run_gc_cli()`](https://growthcleanr.org/reference/run_gc_cli.md) :
+  Run growthcleanr from the command line (CSV in, CSV out)
+
+## User utilities
+
+User functions for related tasks. ext_bmiz() computes Z-scores and
+percentiles for pediatric subjects using the methods in the cdcanthro
+package (<https://CRAN.R-project.org/package=cdcanthro>).
+
+- [`permissiveness_presets()`](https://growthcleanr.org/reference/permissiveness_presets.md)
+  : Return preset setting values for each permissiveness level
+- [`gc_cli_path()`](https://growthcleanr.org/reference/gc_cli_path.md) :
+  Path to the growthcleanr command-line driver script
+- [`longwide()`](https://growthcleanr.org/reference/longwide.md) :
+  Transform data in growthcleanr format into wide structure for BMI
+  calculation
+- [`simple_bmi()`](https://growthcleanr.org/reference/simple_bmi.md) :
+  Compute BMI using standard formula
+- [`ext_bmiz()`](https://growthcleanr.org/reference/ext_bmiz.md) :
+  Calculate extended BMI measures
+- [`recode_sex()`](https://growthcleanr.org/reference/recode_sex.md) :
+  Recode binary sex variable for compatibility
+
+## Support functions
+
+Functions used within the cleaning process. Users can call them directly
+(for example, for checkpointed, partial, or repeated runs), but most
+users will not need to.
+
+- [`cleangrowth_checkpoint()`](https://growthcleanr.org/reference/cleangrowth_checkpoint.md)
+  : Run cleangrowth() with automatic checkpointing (deprecated wrapper)
+- [`cleangrowth_checkpoint_combine()`](https://growthcleanr.org/reference/cleangrowth_checkpoint_combine.md)
+  : Combine saved checkpoint files from a checkpointed cleangrowth() run
+- [`gc_preload_refs()`](https://growthcleanr.org/reference/gc_preload_refs.md)
+  : Pre-load growthcleanr reference closures
+- [`gc_partial_run()`](https://growthcleanr.org/reference/gc_partial_run.md)
+  : Incremental (partial) growthcleanr run
+- [`ewma()`](https://growthcleanr.org/reference/ewma.md) : Exponentially
+  Weighted Moving Average (EWMA)
+- [`read_anthro()`](https://growthcleanr.org/reference/read_anthro.md) :
+  Function to calculate z-scores and csd-scores based on anthro tables.
+
+## Datasets
+
+Reference data and additional sources
+
+- [`CDCref_d`](https://growthcleanr.org/reference/CDCref_d.md) : CDC BMI
+  reference data
+- [`syngrowth`](https://growthcleanr.org/reference/syngrowth.md) :
+  syngrowth
+- [`tanner_ht_vel`](https://growthcleanr.org/reference/tanner_ht_vel.md)
+  : Tanner Growth Velocity Table
+- [`child_z3_reference`](https://growthcleanr.org/reference/child_z3_reference.md)
+  : Child unit-error-range reference values
+- [`who_ht_maxvel`](https://growthcleanr.org/reference/who_ht_maxvel.md)
+  : WHO Maximum Height Velocity for (3\\\sigma\\)
+- [`who_ht_vel_3sd`](https://growthcleanr.org/reference/who_ht_vel_3sd.md)
+  : WHO Height Velocity for (3\\\sigma\\)
+- [`fent_foraga`](https://growthcleanr.org/reference/fent_foraga.md) :
+  Approximated Fenton Median Weights by Gestational Age
+- [`fenton2025_ms_lookup_smoothed`](https://growthcleanr.org/reference/fenton2025_ms_lookup_smoothed.md)
+  : Approximated Fenton CSD Values (M, S_upper, S_lower)
+- [`growth_cdc_ext_infants`](https://growthcleanr.org/reference/growth_cdc_ext_infants.md)
+  : CDC Growth Reference Table
+- [`growth_who_ext`](https://growthcleanr.org/reference/growth_who_ext.md)
+  : WHO Growth Reference Table
+- [`rc-reference-medians`](https://growthcleanr.org/reference/rc-reference-medians.md)
+  : Recentering reference medians
+- [`who_hc_maxvel`](https://growthcleanr.org/reference/who_hc_maxvel.md)
+  : WHO Maximum Head Circumference Velocity for (3\\\sigma\\)
+- [`who_hc_vel_3sd`](https://growthcleanr.org/reference/who_hc_vel_3sd.md)
+  : WHO Head Circumference Velocity for (3\\\sigma\\)
+
+# Articles
+
+### Get started
+
+What growthcleanr does and how to run it. Start here.
+
+- [Start here](https://growthcleanr.org/articles/new-start-here.md):
+- [Start here: Experienced
+  users](https://growthcleanr.org/articles/experienced-start-here.md):
+- [How-To Guide: Using the growthcleanr (v3) Shiny
+  Application](https://growthcleanr.org/articles/how-to-shiny.md):
+- [How-To Guide: Using the growthcleanr (v3) R
+  Interface](https://growthcleanr.org/articles/how-to-r.md):
+
+### Running growthcleanr
+
+Copy-and-paste scripts for common cleaning tasks, and how to handle
+large datasets.
+
+- [How to get your data into CSV format and back out
+  again](https://growthcleanr.org/articles/csv-format.md):
+- [Example
+  scripts](https://growthcleanr.org/articles/example-scripts.md):
+- [Running growthcleanr from the command
+  line](https://growthcleanr.org/articles/command-line.md):
+- [Large datasets: parallel and
+  checkpointing](https://growthcleanr.org/articles/large-datasets.md):
+
+### Configuration & output
+
+Interpreting and customizing results — no programming required.
+
+- [Exclusion
+  codes](https://growthcleanr.org/articles/exclusion-codes.md):
+- [Output: the cleangrowth() return
+  value](https://growthcleanr.org/articles/output.md):
+
+### Technical reference
+
+How growthcleanr works inside, for understanding or modifying it. The
+algorithm vignettes assume no special programming background; the
+pipeline and testing vignettes assume no growth-domain background. Use
+whichever matches what you’re changing.
+
+- [Technical reference: child
+  algorithm](https://growthcleanr.org/articles/child-algorithm.md):
+- [Carried-forward value
+  rescue](https://growthcleanr.org/articles/cf-rescue.md):
+- [Technical reference: adult
+  algorithm](https://growthcleanr.org/articles/adult-algorithm.md):
+- [Technical reference: algorithm
+  functions](https://growthcleanr.org/articles/algorithm-functions.md):
+- [Deriving the recentering reference
+  medians](https://growthcleanr.org/articles/recentering.md):
+- [Technical reference: the cleangrowth()
+  pipeline](https://growthcleanr.org/articles/wrapper.md):
+- [Configuration: arguments and
+  thresholds](https://growthcleanr.org/articles/configuration.md):
+- [Utility functions](https://growthcleanr.org/articles/utilities.md):
+- [Technical reference:
+  testing](https://growthcleanr.org/articles/testing.md):
+- [Use of AI assistance in growthcleanr
+  development](https://growthcleanr.org/articles/ai-role.md):
+
+### About
+
+- [Contributors](https://growthcleanr.org/articles/contributors.md):
